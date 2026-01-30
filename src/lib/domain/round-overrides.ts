@@ -1,0 +1,2 @@
+export const MANUAL_ORDER_LOG_MESSAGE = "MANUAL_ORDER"
+export const MANUAL_ORDER_LOG_LINE = 0

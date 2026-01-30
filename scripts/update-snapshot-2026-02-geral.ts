@@ -1,0 +1,457 @@
+import "dotenv/config"
+
+import { PrismaClient } from "@prisma/client"
+
+const SNAPSHOT_MONTH = "2026-02"
+const RANKING_SLUG = "ranking-masculino"
+const WRITE_START_SNAPSHOT = false
+
+const POSITIONS: Array<{ position: number; name: string }> = [
+  { position: 1, name: "Rodolfo César" },
+  { position: 2, name: "Murilo Lazarini" },
+  { position: 3, name: "Marcos Filho" },
+  { position: 4, name: "Igor Borges" },
+  { position: 5, name: "Matheus Coli" },
+  { position: 6, name: "Lucas Neves" },
+  { position: 7, name: "Zé Pedro" },
+  { position: 8, name: "Caio Nunes" },
+  { position: 9, name: "João Victor" },
+  { position: 10, name: "Valter Jr (Bill)" },
+  { position: 11, name: "Derek Ferreira" },
+  { position: 12, name: "Hugo Basili" },
+  { position: 13, name: "Cury" },
+  { position: 14, name: "Fred Vieira" },
+  { position: 15, name: "Marcelo Ramos" },
+  { position: 16, name: "Ricardo Pavani" },
+  { position: 17, name: "Rodolfo Lelis" },
+  { position: 18, name: "Denis Martins" },
+  { position: 19, name: "Ricardo Brasil" },
+  { position: 20, name: "Allan Bradley" },
+  { position: 21, name: "Marcos Alvarenga" },
+  { position: 22, name: "Pedro Machado (PPR)" },
+  { position: 23, name: "Thiago Silva" },
+  { position: 24, name: "Willian Kie" },
+  { position: 25, name: "Jorginho" },
+  { position: 26, name: "Felipe Dias" },
+  { position: 27, name: "Pedro Lotufo" },
+  { position: 28, name: "Rafael Gonçalvez" },
+  { position: 29, name: "Fabrício Levi Maciel" },
+  { position: 30, name: "Gisiel Resende" },
+  { position: 31, name: "Marcos Geia" },
+  { position: 32, name: "Marcilio Fonseca" },
+  { position: 33, name: "Rafael Calixto" },
+  { position: 34, name: "Willian Correa" },
+  { position: 35, name: "Jean Querido" },
+  { position: 36, name: "Lucas Bueno" },
+  { position: 37, name: "Maurício César" },
+  { position: 38, name: "Gustavo Fonseca" },
+  { position: 39, name: "Gleidon Mineiro" },
+  { position: 40, name: "Flavião" },
+  { position: 41, name: "Paulo Solera" },
+  { position: 42, name: "Ícaro Felter" },
+  { position: 43, name: "Paulo Magalhães" },
+  { position: 44, name: "Cristiano Mafort" },
+  { position: 45, name: "Lucas Fernandes" },
+  { position: 46, name: "Marcos César Mauad" },
+  { position: 47, name: "Bruno Dedini" },
+  { position: 48, name: "Tiago (Tigú)" },
+  { position: 49, name: "Eduardo Marcondes" },
+  { position: 50, name: "Maiara" },
+  { position: 51, name: "Gabriel Pedon" },
+  { position: 52, name: "Celso Rosa" },
+  { position: 53, name: "Kaique Oliveira" },
+  { position: 54, name: "Clóvis de Paula" },
+  { position: 55, name: "Gustavo (DDD)" },
+  { position: 56, name: "Marcio Marcondes" },
+  { position: 57, name: "André Emídio" },
+  { position: 58, name: "Thiago Oliveira" },
+  { position: 59, name: "André Castilho" },
+  { position: 60, name: "Lucca Bianchi" },
+  { position: 61, name: "Rafael Castro" },
+  { position: 62, name: "Samuel Feres" },
+  { position: 63, name: "Denis Togoro" },
+  { position: 64, name: "Enzo Victor" },
+  { position: 65, name: "Carlos Yuri" },
+  { position: 66, name: "Pedro Henrique" },
+  { position: 67, name: "Eduardo Safady" },
+  { position: 68, name: "Rodolfo Lobão" },
+  { position: 69, name: "Ederson Araújo" },
+  { position: 70, name: "André Augustinho" },
+  { position: 71, name: "Diogo Sandret" },
+  { position: 72, name: "Beto Rezende" },
+  { position: 73, name: "Áquila Cardoso" },
+  { position: 74, name: "Paulinho" },
+  { position: 75, name: "Felipe Favalessa" },
+  { position: 76, name: "Ronaldo Ribeiro" },
+  { position: 77, name: "Murilo Lorena" },
+  { position: 78, name: "Fábio da Motta" },
+  { position: 79, name: "Enzo Uliani" },
+  { position: 80, name: "Matheus Machado" },
+  { position: 81, name: "Felipe Betioli" },
+  { position: 82, name: "Du Saraiva" },
+  { position: 83, name: "Renato (6 Zero)" },
+]
+
+const NAME_ALIASES: Record<string, string[]> = {
+  "valter jr bill": ["valter jr", "bill"],
+  "pedro machado ppr": ["pedro machado", "pedro ppr", "ppr"],
+  "tiago tigu": ["tiago", "tigu"],
+  "gustavo ddd": ["gustavo", "ddd"],
+  "ze pedro": ["ze pedro", "jose pedro", "ze pedro 6"],
+  "rafael goncalvez": ["rafael goncalves"],
+  "gisiel resende": ["gisiel rezende"],
+  "maiara": ["maiara", "maiara menezes"],
+  "joao victor": ["joao vitor", "joao vitor coelho"],
+  "ricardo brasil": ["ricardo virgilio", "brasil"],
+  "willian correa": ["willian correa", "william correa"],
+  "willian kie": ["william kie"],
+  "allan bradley": ["allan bradley vieira"],
+  "felipe dias": ["felipe pifano dias"],
+  "jean querido": ["jean querido nicolini"],
+  "marcos cesar mauad": ["marcos mauad"],
+  "eduardo marcondes": ["eduardo de mattos marcondes"],
+  "thiago oliveira": ["thiago aguiar de oliveira"],
+  "fabio da motta": ["fabio da motta machado", "fabio motta"],
+  "aquila cardoso": ["aquila cardoso", "aquila"],
+  "du saraiva": ["du saraiva", "eduardo saraiva"],
+  "renato 6 zero": ["renato 6zero", "renato 6 zero", "renato seis zero"],
+}
+
+const prisma = new PrismaClient()
+
+const normalizeName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[()"'`.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+
+const stripParentheses = (value: string) =>
+  value.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim()
+
+const extractParenContent = (value: string) => {
+  const matches = value.match(/\(([^)]+)\)/g) ?? []
+  return matches
+    .map((match) => match.replace(/[()]/g, "").trim())
+    .filter(Boolean)
+}
+
+const getBusinessDay = (monthStart: Date, index: number) => {
+  const date = new Date(monthStart)
+  let count = 0
+
+  while (count < index) {
+    const day = date.getDay()
+    if (day !== 0 && day !== 6) {
+      count += 1
+      if (count === index) break
+    }
+    date.setDate(date.getDate() + 1)
+  }
+
+  return date
+}
+
+async function ensureOpenRound(rankingId: number, monthKey: Date) {
+  const existing = await prisma.rounds.findFirst({
+    where: { ranking_id: rankingId, reference_month: monthKey },
+    select: { id: true },
+  })
+
+  if (existing) {
+    await prisma.rounds.update({
+      where: { id: existing.id },
+      data: { status: "open", closed_at: null },
+    })
+    return
+  }
+
+  const monthStartLocal = new Date(
+    monthKey.getUTCFullYear(),
+    monthKey.getUTCMonth(),
+    1,
+    0,
+    0,
+    0,
+    0
+  )
+
+  const roundOpen = new Date(monthStartLocal)
+  roundOpen.setHours(7, 0, 0, 0)
+
+  const roundClose = new Date(monthStartLocal)
+  roundClose.setMonth(roundClose.getMonth() + 1)
+  roundClose.setDate(0)
+  roundClose.setHours(23, 59, 0, 0)
+
+  const blueDay = getBusinessDay(monthStartLocal, 1)
+  const blueOpen = new Date(blueDay)
+  blueOpen.setHours(7, 0, 0, 0)
+
+  const blueClose = new Date(blueDay)
+  blueClose.setHours(23, 59, 0, 0)
+
+  const freeDay = getBusinessDay(monthStartLocal, 2)
+  const openStart = new Date(freeDay)
+  openStart.setHours(7, 0, 0, 0)
+
+  const openEnd = new Date(freeDay)
+  openEnd.setHours(23, 59, 0, 0)
+
+  await prisma.rounds.create({
+    data: {
+      title: `Rodada ${monthStartLocal.toLocaleDateString("pt-BR", {
+        month: "long",
+        year: "numeric",
+      })}`,
+      reference_month: monthKey,
+      ranking_id: rankingId,
+      round_opens_at: roundOpen,
+      blue_point_opens_at: blueOpen,
+      blue_point_closes_at: blueClose,
+      open_challenges_at: openStart,
+      open_challenges_end_at: openEnd,
+      matches_deadline: roundClose,
+      status: "open",
+    },
+  })
+}
+
+async function main() {
+  const ranking = await prisma.rankings.findFirst({
+    where: { slug: RANKING_SLUG },
+    select: { id: true, name: true, slug: true },
+  })
+
+  if (!ranking) {
+    throw new Error(`Ranking slug "${RANKING_SLUG}" nao encontrado.`)
+  }
+
+  const members = await prisma.ranking_memberships.findMany({
+    where: { ranking_id: ranking.id },
+    select: {
+      user_id: true,
+      position: true,
+      users: { select: { first_name: true, last_name: true, nickname: true } },
+    },
+    orderBy: { position: "asc" },
+  })
+
+  if (!members.length) {
+    throw new Error("Ranking sem participantes.")
+  }
+
+  const membershipIndex = new Map<string, number[]>()
+  const globalIndex = new Map<string, number[]>()
+  const addIndex = (
+    index: Map<string, number[]>,
+    label: string | null | undefined,
+    userId: number
+  ) => {
+    const normalized = label ? normalizeName(label) : ""
+    if (!normalized) return
+    const existing = index.get(normalized) ?? []
+    if (!existing.includes(userId)) {
+      existing.push(userId)
+      index.set(normalized, existing)
+    }
+  }
+
+  members.forEach((member) => {
+    const full = `${member.users.first_name ?? ""} ${member.users.last_name ?? ""}`.trim()
+    const nickname = member.users.nickname?.trim() ?? ""
+    addIndex(membershipIndex, full, member.user_id)
+    addIndex(membershipIndex, nickname, member.user_id)
+    if (full && nickname) {
+      addIndex(membershipIndex, `${full} ${nickname}`, member.user_id)
+    }
+  })
+
+  const users = await prisma.users.findMany({
+    select: { id: true, first_name: true, last_name: true, nickname: true },
+  })
+
+  users.forEach((user) => {
+    const full = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim()
+    const nickname = user.nickname?.trim() ?? ""
+    addIndex(globalIndex, full, user.id)
+    addIndex(globalIndex, nickname, user.id)
+    if (full && nickname) {
+      addIndex(globalIndex, `${full} ${nickname}`, user.id)
+    }
+  })
+
+  const resolveUserId = (label: string, index: Map<string, number[]>) => {
+    const keys = new Set<string>()
+    const normalized = normalizeName(label)
+    if (normalized) {
+      keys.add(normalized)
+    }
+
+    const stripped = stripParentheses(label)
+    const normalizedStripped = normalizeName(stripped)
+    if (normalizedStripped) {
+      keys.add(normalizedStripped)
+    }
+
+    extractParenContent(label).forEach((part) => {
+      const normalizedPart = normalizeName(part)
+      if (normalizedPart) {
+        keys.add(normalizedPart)
+      }
+    })
+
+    const aliasKeys = NAME_ALIASES[normalized] ?? []
+    aliasKeys.forEach((alias) => {
+      const normalizedAlias = normalizeName(alias)
+      if (normalizedAlias) {
+        keys.add(normalizedAlias)
+      }
+    })
+
+    const matched = new Set<number>()
+    keys.forEach((key) => {
+      const found = index.get(key) ?? []
+      found.forEach((userId) => matched.add(userId))
+    })
+
+    return Array.from(matched)
+  }
+
+  const assigned = new Map<number, string>()
+  const unresolved: string[] = []
+  const ambiguous: Array<{ label: string; userIds: number[] }> = []
+
+  const resolvedPositions = POSITIONS.map((entry) => {
+    let matches = resolveUserId(entry.name, membershipIndex)
+    const matchedFromRanking = matches.length > 0
+    if (!matches.length) {
+      matches = resolveUserId(entry.name, globalIndex)
+    }
+    if (matches.length === 0) {
+      unresolved.push(entry.name)
+      return null
+    }
+    if (matches.length > 1) {
+      ambiguous.push({ label: entry.name, userIds: matches })
+      return null
+    }
+    const userId = matches[0]
+    if (assigned.has(userId)) {
+      ambiguous.push({ label: entry.name, userIds: [userId] })
+      return null
+    }
+    assigned.set(userId, entry.name)
+    if (!matchedFromRanking) {
+      console.warn(
+        `Aviso: jogador "${entry.name}" nao esta no ranking atual (user_id ${userId}).`
+      )
+    }
+    return { position: entry.position, userId }
+  })
+
+  if (unresolved.length || ambiguous.length) {
+    if (unresolved.length) {
+      console.error("Nomes nao encontrados:")
+      unresolved.forEach((name) => console.error(`- ${name}`))
+    }
+    if (ambiguous.length) {
+      console.error("Nomes ambiguos:")
+      ambiguous.forEach((item) =>
+        console.error(`- ${item.label} (ids: ${item.userIds.join(", ")})`)
+      )
+    }
+    process.exit(1)
+  }
+
+  const positions = resolvedPositions.filter(Boolean) as Array<{
+    position: number
+    userId: number
+  }>
+
+  const unassignedMembers = members.filter(
+    (member) => !assigned.has(member.user_id)
+  )
+  if (unassignedMembers.length) {
+    console.warn("Aviso: jogadores do ranking atual sem posicao no snapshot:")
+    unassignedMembers.forEach((member) => {
+      const full = `${member.users.first_name ?? ""} ${member.users.last_name ?? ""}`.trim()
+      const nickname = member.users.nickname?.trim()
+      console.warn(
+        `- ${full || nickname || `ID ${member.user_id}`} (id ${member.user_id})`
+      )
+    })
+  }
+
+  const [yearRaw, monthRaw] = SNAPSHOT_MONTH.split("-")
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const monthStart = new Date(Date.UTC(year, month - 1, 1))
+  if (!Number.isFinite(year) || !Number.isFinite(month) || Number.isNaN(monthStart.getTime())) {
+    throw new Error("Mes invalido.")
+  }
+
+  await prisma.ranking_snapshots.deleteMany({
+    where: {
+      ranking_id: ranking.id,
+      round_month: monthStart,
+      snapshot_type: "end",
+    },
+  })
+
+  await prisma.ranking_snapshots.createMany({
+    data: positions.map((entry) => ({
+      ranking_id: ranking.id,
+      round_month: monthStart,
+      snapshot_type: "end" as const,
+      user_id: entry.userId,
+      position: entry.position,
+    })),
+    skipDuplicates: true,
+  })
+
+  if (WRITE_START_SNAPSHOT) {
+    await prisma.ranking_snapshots.deleteMany({
+      where: {
+        ranking_id: ranking.id,
+        round_month: monthStart,
+        snapshot_type: "start",
+      },
+    })
+
+    await prisma.ranking_snapshots.createMany({
+      data: positions.map((entry) => ({
+        ranking_id: ranking.id,
+        round_month: monthStart,
+        snapshot_type: "start" as const,
+        user_id: entry.userId,
+        position: entry.position,
+      })),
+      skipDuplicates: true,
+    })
+  }
+
+  await ensureOpenRound(ranking.id, monthStart)
+
+  for (const entry of positions) {
+    await prisma.ranking_memberships.updateMany({
+      where: { ranking_id: ranking.id, user_id: entry.userId },
+      data: { position: entry.position },
+    })
+  }
+
+  console.log(
+    `Snapshot atualizado para ${ranking.name} (${SNAPSHOT_MONTH}), ${positions.length} jogadores.`
+  )
+}
+
+main()
+  .catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
+  .finally(async () => {
+    await prisma.$disconnect()
+  })

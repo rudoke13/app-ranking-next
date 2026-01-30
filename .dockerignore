@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.gitignore
+.DS_Store
+.env*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+docker
+docker-compose*.yml
+legacy
+README.md
