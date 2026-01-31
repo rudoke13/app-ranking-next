@@ -13,6 +13,7 @@ type PresignResponse = {
   ok: boolean
   uploadUrl: string
   publicUrl: string
+  message?: string
 }
 
 type AvatarUploaderProps = {
@@ -79,10 +80,17 @@ export default function AvatarUploader({
         body: JSON.stringify({ contentType: file.type }),
       })
 
-      const presignData = (await presignResponse.json()) as PresignResponse
+      let presignData: PresignResponse | null = null
+      try {
+        presignData = (await presignResponse.json()) as PresignResponse
+      } catch {
+        presignData = null
+      }
 
-      if (!presignResponse.ok || !presignData.ok) {
-        throw new Error("Nao foi possivel gerar o link de upload.")
+      if (!presignResponse.ok || !presignData?.ok) {
+        throw new Error(
+          presignData?.message ?? "Nao foi possivel gerar o link de upload."
+        )
       }
 
       const uploadResponse = await fetch(presignData.uploadUrl, {
