@@ -25,7 +25,9 @@ export async function middleware(request: NextRequest) {
   }
 
   const cookie = request.headers.get("cookie") ?? ""
-  const validation = await fetch(new URL("/api/auth/validate", request.url), {
+  const internalBase =
+    process.env.INTERNAL_APP_URL?.trim() || request.nextUrl.origin
+  const validation = await fetch(new URL("/api/auth/validate", internalBase), {
     headers: { cookie },
   })
 
