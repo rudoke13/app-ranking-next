@@ -49,3 +49,4 @@ next-env.d.ts
 
 # local dumps
 /taubatecountrycl_appranking.sql
+/ranking_tcc_dump.sql

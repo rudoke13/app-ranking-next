@@ -1,16 +1,8 @@
 import SectionTitle from "@/components/app/SectionTitle"
 import AvatarUploader from "@/components/profile/AvatarUploader"
+import ProfileForm from "@/components/profile/ProfileForm"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
@@ -82,61 +74,16 @@ export default async function PerfilPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Editar perfil</CardTitle>
-          <CardDescription>Atualize suas informacoes basicas.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="nome">Nome</Label>
-            <Input id="nome" defaultValue={user?.first_name ?? ""} placeholder="Rodolfo" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sobrenome">Sobrenome</Label>
-            <Input id="sobrenome" defaultValue={user?.last_name ?? ""} placeholder="Lelis" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="apelido">Apelido</Label>
-            <Input id="apelido" defaultValue={nickname} placeholder="Rodo" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">E-mail</Label>
-            <Input id="email" type="email" defaultValue={email} placeholder="rodolfo@tcc.com.br" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="celular">Celular</Label>
-            <Input id="celular" defaultValue={phone} placeholder="(11) 99999-0000" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="nascimento">Data de nascimento</Label>
-            <Input id="nascimento" type="date" defaultValue={birthDateValue} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Senha</CardTitle>
-          <CardDescription>Deixe em branco se nao quiser alterar.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="nova-senha">Nova senha</Label>
-            <Input id="nova-senha" type="password" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirmar-senha">Confirmar senha</Label>
-            <Input id="confirmar-senha" type="password" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button className="bg-success text-success-foreground hover:bg-success/90">
-          Salvar
-        </Button>
-      </div>
+      <ProfileForm
+        initialData={{
+          firstName: user?.first_name ?? "",
+          lastName: user?.last_name ?? "",
+          nickname,
+          email,
+          phone,
+          birthDate: birthDateValue,
+        }}
+      />
     </div>
   )
 }

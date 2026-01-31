@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
+import { Eye, EyeOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +22,8 @@ export default function ResetPasswordForm() {
 
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -80,23 +83,57 @@ export default function ResetPasswordForm() {
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <Label htmlFor="password">Nova senha</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm">Confirmar senha</Label>
-              <Input
-                id="confirm"
-                type="password"
-                required
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="confirm"
+                  type={showConfirm ? "text" : "password"}
+                  required
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                  className="pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowConfirm((prev) => !prev)}
+                  aria-label={showConfirm ? "Ocultar senha" : "Mostrar senha"}
+                >
+                  {showConfirm ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             {error ? (
               <p className="text-sm text-destructive" role="alert">
