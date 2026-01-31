@@ -5,6 +5,12 @@ import { db } from "@/lib/db"
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
 
+const monthValueFromDateOnly = (value: Date) => {
+  const year = value.getUTCFullYear()
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0")
+  return `${year}-${month}`
+}
+
 const monthValueInTz = (value: Date) => {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -19,9 +25,7 @@ const monthValueInTz = (value: Date) => {
     }
   } catch {}
 
-  const fallbackYear = value.getUTCFullYear()
-  const fallbackMonth = String(value.getUTCMonth() + 1).padStart(2, "0")
-  return `${fallbackYear}-${fallbackMonth}`
+  return monthValueFromDateOnly(value)
 }
 
 export async function GET() {
@@ -55,7 +59,7 @@ export async function GET() {
   const monthSet = new Set<string>()
 
   rounds.forEach((round) => {
-    monthSet.add(monthValueInTz(round.reference_month))
+    monthSet.add(monthValueFromDateOnly(round.reference_month))
   })
 
   challenges.forEach((challenge) => {
@@ -67,7 +71,7 @@ export async function GET() {
   })
 
   const currentMonth = openRound?.reference_month
-    ? monthValueInTz(openRound.reference_month)
+    ? monthValueFromDateOnly(openRound.reference_month)
     : monthValueInTz(new Date())
 
   monthSet.add(currentMonth)

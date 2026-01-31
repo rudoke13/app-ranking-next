@@ -137,7 +137,18 @@ export default function DesafiosClient({
     return list
   }, [])
 
-  const months = monthOptions.length ? monthOptions : fallbackMonths
+  const months = useMemo(() => {
+    const merged = new Map<string, MonthOption>()
+    monthOptions.forEach((option) => merged.set(option.value, option))
+    fallbackMonths.forEach((option) => {
+      if (!merged.has(option.value)) {
+        merged.set(option.value, option)
+      }
+    })
+    return Array.from(merged.values()).sort((a, b) =>
+      b.value.localeCompare(a.value)
+    )
+  }, [monthOptions, fallbackMonths])
 
   const challengeMetrics = useMemo(() => {
     let games = 0
