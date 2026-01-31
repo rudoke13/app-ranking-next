@@ -13,6 +13,11 @@ export default async function SessionGate({
   const role = session?.role ?? "player"
   let name = session?.name ?? "Rodolfo Lelis"
   let avatarUrl: string | null = null
+  let logoUrl: string | null = null
+
+  const logoEmail =
+    process.env.ADMIN_LOGO_EMAIL?.trim().toLowerCase() ??
+    "rodolfo@rldigital.app.br"
 
   if (session?.userId) {
     const userId = Number(session.userId)
@@ -39,9 +44,27 @@ export default async function SessionGate({
     }
   }
 
+  if (logoEmail) {
+    try {
+      const admin = await db.users.findUnique({
+        where: { email: logoEmail },
+        select: { avatarUrl: true },
+      })
+      logoUrl = admin?.avatarUrl ?? null
+    } catch {
+      // Ignore logo lookup failures.
+    }
+  }
+
   return (
     <>
-      <AppHeader name={name} role={role} avatarUrl={avatarUrl} />
+      <AppHeader
+        name={name}
+        role={role}
+        avatarUrl={avatarUrl}
+        logoUrl={logoUrl}
+        logoLabel="TCC"
+      />
       <PageContainer>{children}</PageContainer>
       <BottomNav role={role} />
     </>

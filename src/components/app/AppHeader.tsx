@@ -9,6 +9,8 @@ export type AppHeaderProps = {
   name: string
   role: Role
   avatarUrl?: string | null
+  logoUrl?: string | null
+  logoLabel?: string
 }
 
 const roleLabel: Record<Role, string> = {
@@ -16,7 +18,13 @@ const roleLabel: Record<Role, string> = {
   player: "Jogador",
 }
 
-export default function AppHeader({ name, role, avatarUrl }: AppHeaderProps) {
+export default function AppHeader({
+  name,
+  role,
+  avatarUrl,
+  logoUrl,
+  logoLabel = "TCC",
+}: AppHeaderProps) {
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
 
   return (
@@ -24,9 +32,16 @@ export default function AppHeader({ name, role, avatarUrl }: AppHeaderProps) {
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link
           href="/dashboard"
-          className="text-base font-semibold tracking-tight text-primary sm:text-lg"
+          className="flex items-center gap-3 text-base font-semibold tracking-tight text-primary sm:text-lg"
         >
-          {appName}
+          <UserAvatar
+            name={appName}
+            src={logoUrl}
+            size={32}
+            fallbackLabel={logoLabel}
+            className="text-sm"
+          />
+          <span>{appName}</span>
         </Link>
         <div className="flex items-center gap-3 text-xs sm:text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
