@@ -1016,10 +1016,16 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                     const statusBadges: Array<{
                       label: string
                       tone: StatPillTone
+                      className?: string
                     }> = []
 
                     if (player.isBluePoint) {
-                      statusBadges.push({ label: "Ponto azul", tone: "info" })
+                      statusBadges.push({
+                        label: "Ponto azul",
+                        tone: "info",
+                        className:
+                          "border-sky-400 bg-sky-500/90 text-white shadow-sm dark:border-sky-300 dark:bg-sky-400/90 dark:text-slate-900",
+                      })
                     }
 
                     if (player.isAccessChallenge) {
@@ -1092,10 +1098,13 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       !player.isSuspended &&
                       !isSelf
                     const isDragging = draggingId === player.userId
-                    const rowTone =
+                    const baseRowTone =
                       index % 2 === 0
                         ? "bg-sky-50/80 dark:bg-slate-900/60"
                         : "bg-white dark:bg-slate-800/60"
+                    const rowTone = player.isBluePoint
+                      ? "bg-sky-100/90 dark:bg-sky-900/40"
+                      : baseRowTone
                     const blueHighlight = player.isBluePoint
                       ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
                       : ""
@@ -1146,6 +1155,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                                       key={`${player.userId}-${status.label}`}
                                       label={status.label}
                                       tone={status.tone}
+                                      className={status.className}
                                     />
                                   ))
                                 ) : (
