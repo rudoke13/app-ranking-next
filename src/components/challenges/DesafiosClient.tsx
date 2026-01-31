@@ -41,6 +41,16 @@ const monthValue = (date: Date) => {
 const monthLabel = (date: Date) =>
   date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
 
+const monthDateFromValue = (value: string) => {
+  const [yearRaw, monthRaw] = value.split("-")
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return new Date(value)
+  }
+  return new Date(year, month - 1, 1)
+}
+
 const toDateTimeInput = (date: Date) => {
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
@@ -177,7 +187,7 @@ export default function DesafiosClient({
 
     const current = response.data.currentMonth ?? monthValue(new Date())
     const list = response.data.months
-      .map((value) => ({ value, label: monthLabel(new Date(`${value}-01`)) }))
+      .map((value) => ({ value, label: monthLabel(monthDateFromValue(value)) }))
       .sort((a, b) => b.value.localeCompare(a.value))
 
     const defaultMonth = list.some((item) => item.value === current)
