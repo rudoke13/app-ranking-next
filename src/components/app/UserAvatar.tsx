@@ -4,6 +4,7 @@ import { getInitials } from "@/lib/user/initials"
 export type UserAvatarProps = {
   name: string
   src?: string | null
+  fallbackLabel?: string
   size?: number
   className?: string
 }
@@ -11,10 +12,12 @@ export type UserAvatarProps = {
 export default function UserAvatar({
   name,
   src,
+  fallbackLabel,
   size = 32,
   className,
 }: UserAvatarProps) {
   const initials = getInitials(name)
+  const label = fallbackLabel?.trim() ? fallbackLabel : initials
   const normalizedSrc =
     src && (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:"))
       ? src
@@ -33,7 +36,7 @@ export default function UserAvatar({
       {normalizedSrc ? (
         <img src={normalizedSrc} alt={name} className="h-full w-full object-cover" />
       ) : (
-        <span>{initials}</span>
+        <span>{label}</span>
       )}
     </div>
   )

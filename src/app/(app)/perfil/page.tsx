@@ -41,7 +41,11 @@ export default async function PerfilPage() {
         <CardContent className="space-y-6">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-4">
-              <AvatarUploader name={fullName} avatarUrl={user?.avatarUrl ?? null} />
+              <AvatarUploader
+                name={fullName}
+                avatarUrl={user?.avatarUrl ?? null}
+                fallbackLabel={session?.role === "admin" ? "TCC" : undefined}
+              />
               <div className="space-y-1">
                 <p className="text-lg font-semibold text-foreground">
                   {fullName}

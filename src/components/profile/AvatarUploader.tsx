@@ -18,11 +18,13 @@ type PresignResponse = {
 type AvatarUploaderProps = {
   name: string
   avatarUrl?: string | null
+  fallbackLabel?: string
 }
 
 export default function AvatarUploader({
   name,
   avatarUrl: initialAvatarUrl,
+  fallbackLabel,
 }: AvatarUploaderProps) {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     initialAvatarUrl ?? null
@@ -123,6 +125,7 @@ export default function AvatarUploader({
   }
 
   const initials = getInitials(name)
+  const label = fallbackLabel?.trim() ? fallbackLabel : initials
   const displayUrl = previewUrl ?? avatarUrl
 
   return (
@@ -136,7 +139,7 @@ export default function AvatarUploader({
               className="h-full w-full object-cover"
             />
           ) : (
-            <span>{initials}</span>
+            <span>{label}</span>
           )}
         </div>
         <div className="space-y-1">

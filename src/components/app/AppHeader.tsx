@@ -30,7 +30,12 @@ export default function AppHeader({ name, role, avatarUrl }: AppHeaderProps) {
         </Link>
         <div className="flex items-center gap-3 text-xs sm:text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
-            <UserAvatar name={name} src={avatarUrl} size={32} />
+            <UserAvatar
+              name={name}
+              src={avatarUrl}
+              size={32}
+              fallbackLabel={role === "admin" ? "TCC" : undefined}
+            />
             <span>
               Olá, <span className="font-semibold text-foreground">{name}</span>
             </span>
