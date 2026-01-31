@@ -644,7 +644,13 @@ export default function DesafiosClient({
           </div>
           <div className="space-y-2">
             <Label htmlFor="month-select">Mes</Label>
-            <Select value={monthFilter} onValueChange={setMonthFilter}>
+            <Select
+              value={monthFilter}
+              onValueChange={(value) => {
+                setMonthFilter(value)
+                loadChallenges(value)
+              }}
+            >
               <SelectTrigger id="month-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
