@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type DragEvent } from "react"
 import Link from "next/link"
-import { GripVertical, TriangleAlert, Users } from "lucide-react"
+import { GripVertical, Pencil, TriangleAlert, Users, X } from "lucide-react"
 
 import EmptyState from "@/components/app/EmptyState"
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { apiGet, apiPost } from "@/lib/http"
+import { apiGet, apiPatch, apiPost } from "@/lib/http"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 
 const statusTone = {
@@ -142,6 +142,14 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   >(null)
   const [now, setNow] = useState(() => Date.now())
   const [releaseFlashAt, setReleaseFlashAt] = useState<number | null>(null)
+  const [editingPlayer, setEditingPlayer] = useState<PlayerItem | null>(null)
+  const [editForm, setEditForm] = useState({
+    isBluePoint: false,
+    isSuspended: false,
+    isAccessChallenge: false,
+  })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   const resetSelectionState = () => {
     setEditing(false)
@@ -153,6 +161,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setAdminActionLoading(null)
     setAdminMonth("")
     setNextRoundMonth("")
+    setEditingPlayer(null)
+    setEditSaving(false)
+    setEditError(null)
   }
 
   const handleSelectRanking = (nextId: string) => {
@@ -480,6 +491,56 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
     setPlayersData(response.data)
     setLoadingPlayers(false)
+  }
+
+  const openEditModal = (player: PlayerItem) => {
+    if (!isAdmin) return
+    setEditingPlayer(player)
+    setEditForm({
+      isBluePoint: Boolean(player.isBluePoint),
+      isSuspended: Boolean(player.isSuspended),
+      isAccessChallenge: Boolean(player.isAccessChallenge),
+    })
+    setEditError(null)
+  }
+
+  const closeEditModal = () => {
+    setEditingPlayer(null)
+    setEditSaving(false)
+    setEditError(null)
+  }
+
+  const handleSavePlayer = async () => {
+    if (!editingPlayer || !playersData) return
+    if (!editingPlayer.membershipId) {
+      setEditError("Vinculo do jogador nao encontrado.")
+      return
+    }
+    setEditSaving(true)
+    setEditError(null)
+
+    const response = await apiPatch<{ membership?: unknown }>(
+      `/api/admin/users/${editingPlayer.userId}`,
+      {
+        membership: {
+          id: editingPlayer.membershipId,
+          ranking_id: playersData.ranking.id,
+          is_blue_point: editForm.isBluePoint,
+          is_suspended: editForm.isSuspended,
+          is_access_challenge: editForm.isAccessChallenge,
+        },
+      }
+    )
+
+    if (!response.ok) {
+      setEditError(response.message)
+      setEditSaving(false)
+      return
+    }
+
+    await refreshPlayers(playersData.ranking.id, adminMonth)
+    setEditSaving(false)
+    setEditingPlayer(null)
   }
 
   const handleChallenge = async (playerId: number) => {
@@ -1035,13 +1096,19 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       index % 2 === 0
                         ? "bg-sky-50/80 dark:bg-slate-900/60"
                         : "bg-white dark:bg-slate-800/60"
+                    const blueHighlight = player.isBluePoint
+                      ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
+                      : ""
+                    const showAdminEdit = isAdmin && !editing
 
                     return (
                       <Card
                         key={player.userId}
                         className={`shadow-none ${
                           editing ? "cursor-grab border-dashed" : ""
-                        } ${rowTone} ${isDragging ? "ring-2 ring-primary/30 opacity-70" : ""}`}
+                        } ${rowTone} ${blueHighlight} ${
+                          isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
+                        }`}
                         draggable={editing}
                         onDragStart={(event) =>
                           handleDragStart(event, player.userId)
@@ -1092,18 +1159,34 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                               ) : null}
                             </div>
                           </div>
-                          {showChallenge ? (
-                            <Button
-                              className="w-full sm:w-auto"
-                              disabled={
-                                !canChallenge || actionLoading === player.userId
-                              }
-                              onClick={() => handleChallenge(player.userId)}
-                            >
-                              {actionLoading === player.userId
-                                ? "Enviando..."
-                                : "Desafiar"}
-                            </Button>
+                          {showChallenge || showAdminEdit ? (
+                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                              {showChallenge ? (
+                                <Button
+                                  className="w-full sm:w-auto"
+                                  disabled={
+                                    !canChallenge ||
+                                    actionLoading === player.userId
+                                  }
+                                  onClick={() => handleChallenge(player.userId)}
+                                >
+                                  {actionLoading === player.userId
+                                    ? "Enviando..."
+                                    : "Desafiar"}
+                                </Button>
+                              ) : null}
+                              {showAdminEdit ? (
+                                <Button
+                                  className="w-full sm:w-auto"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEditModal(player)}
+                                >
+                                  <Pencil className="size-4" />
+                                  Editar
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : null}
                         </CardContent>
                       </Card>
@@ -1116,6 +1199,123 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
               )}
             </div>
           </div>
+          {editingPlayer ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={closeEditModal}
+              />
+              <Card className="relative z-10 w-full max-w-lg shadow-lg">
+                <CardHeader className="flex items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg">Editar jogador</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      Ajuste o status do jogador no ranking.
+                    </p>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={closeEditModal}
+                    aria-label="Fechar"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Jogador</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {formatName(
+                        editingPlayer.firstName,
+                        editingPlayer.lastName,
+                        editingPlayer.nickname
+                      )}
+                    </p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-blue">Ponto azul</Label>
+                      <Select
+                        value={editForm.isBluePoint ? "yes" : "no"}
+                        onValueChange={(value) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            isBluePoint: value === "yes",
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="edit-blue">
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">Sim</SelectItem>
+                          <SelectItem value="no">Nao</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-license">Em licenca</Label>
+                      <Select
+                        value={editForm.isSuspended ? "yes" : "no"}
+                        onValueChange={(value) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            isSuspended: value === "yes",
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="edit-license">
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">Sim</SelectItem>
+                          <SelectItem value="no">Nao</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-access">Desafio de acesso</Label>
+                      <Select
+                        value={editForm.isAccessChallenge ? "yes" : "no"}
+                        onValueChange={(value) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            isAccessChallenge: value === "yes",
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="edit-access">
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yes">Sim</SelectItem>
+                          <SelectItem value="no">Nao</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {editError ? (
+                    <p className="text-xs text-destructive" role="alert">
+                      {editError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <Button
+                      variant="ghost"
+                      onClick={closeEditModal}
+                      disabled={editSaving}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button onClick={handleSavePlayer} disabled={editSaving}>
+                      {editSaving ? "Salvando..." : "Salvar"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
         </>
       )}
     </div>
