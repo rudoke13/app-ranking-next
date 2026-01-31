@@ -1,6 +1,6 @@
 import { db } from "@/lib/db"
 
-export const DEFAULT_ADMIN_LOGO_EMAIL = "rodolfo@rlfigital.app.br"
+export const DEFAULT_ADMIN_LOGO_EMAIL = "rodolfo@rldigital.app.br"
 
 export const ADMIN_LOGO_EMAIL = (
   process.env.ADMIN_LOGO_EMAIL ?? DEFAULT_ADMIN_LOGO_EMAIL
