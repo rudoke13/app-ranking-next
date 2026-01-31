@@ -24,6 +24,7 @@ const updateSchema = z.object({
 
 const toMonthKey = (value: string) => monthKeyFromValue(value)
 const toMonthStartLocal = (value: string) => monthStartLocalFromValue(value)
+const APP_TIMEZONE = process.env.APP_TIMEZONE?.trim() || "America/Sao_Paulo"
 
 const getBusinessDay = (monthStart: Date, index: number) => {
   const date = new Date(monthStart)
@@ -41,17 +42,70 @@ const getBusinessDay = (monthStart: Date, index: number) => {
   return date
 }
 
-const toDateTime = (value: string) => {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
+const parseDateTimeInTimeZone = (value: string) => {
+  const [datePart, timePart] = value.split("T")
+  if (!datePart || !timePart) return null
+
+  const [yearRaw, monthRaw, dayRaw] = datePart.split("-")
+  const [hourRaw, minuteRaw] = timePart.split(":")
+
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Number(dayRaw)
+  const hour = Number(hourRaw)
+  const minute = Number(minuteRaw)
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null
+  }
+
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0))
+  if (Number.isNaN(utcGuess.getTime())) return null
+
+  const zoned = new Date(utcGuess.toLocaleString("en-US", { timeZone: APP_TIMEZONE }))
+  if (Number.isNaN(zoned.getTime())) return null
+
+  const diff = utcGuess.getTime() - zoned.getTime()
+  return new Date(utcGuess.getTime() + diff)
 }
+
+const toDateTime = (value: string) => parseDateTimeInTimeZone(value)
 
 const toIso = (value: Date | null) => (value ? value.toISOString() : null)
 
 const toDateInput = (value: Date) => {
-  const pad = (num: number) => String(num).padStart(2, "0")
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+
+  const parts = formatter.formatToParts(value)
+  const lookup = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? ""
+
+  const year = lookup("year")
+  const month = lookup("month")
+  const day = lookup("day")
+  const hour = lookup("hour")
+  const minute = lookup("minute")
+
+  if (!year || !month || !day || !hour || !minute) {
+    const pad = (num: number) => String(num).padStart(2, "0")
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
+  }
+
+  return `${year}-${month}-${day}T${hour}:${minute}`
 }
 
 const toMonthValue = (value: Date) => {

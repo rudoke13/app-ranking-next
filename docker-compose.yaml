@@ -15,6 +15,7 @@ services:
       - INTERNAL_APP_URL=http://localhost:3000
       - S3_ENDPOINT_INTERNAL=http://minio:9000
       - S3_PUBLIC_ENDPOINT
+      - APP_TIMEZONE=America/Sao_Paulo
       - DATABASE_URL
       - JWT_SECRET
       - S3_ENDPOINT
