@@ -4,6 +4,7 @@ import LogoutButton from "@/components/app/LogoutButton"
 import UserAvatar from "@/components/app/UserAvatar"
 import { Badge } from "@/components/ui/badge"
 import type { Role } from "@/lib/auth/types"
+import ThemeToggle from "@/components/app/ThemeToggle"
 
 export type AppHeaderProps = {
   name: string
@@ -63,6 +64,7 @@ export default function AppHeader({
               </Badge>
             ) : null}
           </div>
+          <ThemeToggle />
           <LogoutButton />
         </div>
       </div>
