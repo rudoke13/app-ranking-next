@@ -37,7 +37,7 @@ export default function BottomNav({ role }: BottomNavProps) {
               className={cn(
                 "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium transition",
                 isActive
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
               )}
             >
