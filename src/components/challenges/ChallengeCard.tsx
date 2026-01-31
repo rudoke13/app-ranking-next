@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import {
   Select,
   SelectContent,
@@ -65,12 +66,14 @@ export type ChallengeCardProps = {
   challenge: ChallengeItem
   isAdmin?: boolean
   onActionComplete?: () => void
+  className?: string
 }
 
 export default function ChallengeCard({
   challenge,
   isAdmin = false,
   onActionComplete,
+  className,
 }: ChallengeCardProps) {
   const [actionMode, setActionMode] = useState<"result" | "edit" | null>(null)
   const [loading, setLoading] = useState<string | null>(null)
@@ -338,7 +341,7 @@ export default function ChallengeCard({
   }
 
   return (
-    <Card className="shadow-none">
+    <Card className={cn("shadow-none", className)}>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">

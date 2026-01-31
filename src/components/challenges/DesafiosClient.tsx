@@ -748,12 +748,17 @@ export default function DesafiosClient({
         />
       ) : challenges.length ? (
         <div className="space-y-4">
-          {challenges.map((challenge) => (
+          {challenges.map((challenge, index) => (
             <ChallengeCard
               key={challenge.id}
               challenge={challenge}
               isAdmin={isAdmin}
               onActionComplete={loadChallenges}
+              className={
+                index % 2 === 0
+                  ? "bg-sky-50/80 dark:bg-slate-900/60"
+                  : "bg-white dark:bg-slate-800/60"
+              }
             />
           ))}
         </div>

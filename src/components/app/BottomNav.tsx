@@ -17,7 +17,7 @@ export default function BottomNav({ role }: BottomNavProps) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 border-t bg-card/95 backdrop-blur"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-primary/30 bg-primary backdrop-blur"
       aria-label="Navegação principal"
     >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-around gap-1 px-3 py-2">
@@ -35,10 +35,10 @@ export default function BottomNav({ role }: BottomNavProps) {
               href={item.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium transition",
+                "flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium transition-colors",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  ? "bg-primary-foreground/15 text-primary-foreground shadow-sm"
+                  : "text-primary-foreground/70 hover:bg-primary-foreground/10 hover:text-primary-foreground"
               )}
             >
               <Icon className="size-5" />

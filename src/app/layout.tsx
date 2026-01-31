@@ -1,11 +1,44 @@
 import type { Metadata } from "next"
 import "./globals.css"
 
-const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC";
+import { getAdminLogoUrl } from "@/lib/branding"
 
-export const metadata: Metadata = {
-  title: appName,
-  description: "Plataforma de ranking e desafios do Tênis TCC.",
+export async function generateMetadata(): Promise<Metadata> {
+  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
+  const logoUrl = await getAdminLogoUrl()
+  const iconType = (url: string) => {
+    const clean = url.split("?")[0]
+    const ext = clean.split(".").pop()?.toLowerCase()
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg"
+    if (ext === "webp") return "image/webp"
+    if (ext === "png") return "image/png"
+    return "image/png"
+  }
+
+  const icons = logoUrl
+    ? {
+        icon: [
+          {
+            url: logoUrl,
+            type: iconType(logoUrl),
+          },
+        ],
+        apple: [
+          {
+            url: logoUrl,
+            type: iconType(logoUrl),
+          },
+        ],
+      }
+    : undefined
+
+  return {
+    title: appName,
+    description: "Plataforma de ranking e desafios do Tênis TCC.",
+    manifest: "/manifest.webmanifest",
+    themeColor: "#0b1218",
+    icons,
+  }
 }
 
 export default function RootLayout({
@@ -14,7 +47,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" className="dark" suppressHydrationWarning>
       <body
         className="min-h-screen bg-background text-foreground antialiased font-sans"
       >

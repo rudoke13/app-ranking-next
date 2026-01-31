@@ -944,7 +944,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
             <div className="space-y-3">
               {activePlayers.length ? (
-                activePlayers.map((player) => {
+                activePlayers.map((player, index) => {
                     const name = formatName(
                       player.firstName,
                       player.lastName,
@@ -1031,13 +1031,17 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       !player.isSuspended &&
                       !isSelf
                     const isDragging = draggingId === player.userId
+                    const rowTone =
+                      index % 2 === 0
+                        ? "bg-sky-50/80 dark:bg-slate-900/60"
+                        : "bg-white dark:bg-slate-800/60"
 
                     return (
                       <Card
                         key={player.userId}
                         className={`shadow-none ${
                           editing ? "cursor-grab border-dashed" : ""
-                        } ${isDragging ? "ring-2 ring-primary/30 opacity-70" : ""}`}
+                        } ${rowTone} ${isDragging ? "ring-2 ring-primary/30 opacity-70" : ""}`}
                         draggable={editing}
                         onDragStart={(event) =>
                           handleDragStart(event, player.userId)
