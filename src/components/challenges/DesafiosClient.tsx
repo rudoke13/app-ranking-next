@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CircleX, Filter, Swords, Trophy } from "lucide-react"
 
 import ChallengeCard, {
@@ -134,6 +134,7 @@ export default function DesafiosClient({
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
   const [createPlayersLoading, setCreatePlayersLoading] = useState(false)
   const [monthOptions, setMonthOptions] = useState<MonthOption[]>([])
+  const initializedRef = useRef(false)
 
   const fallbackMonths = useMemo(() => {
     const list: MonthOption[] = []
@@ -231,6 +232,9 @@ export default function DesafiosClient({
   )
 
   useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+
     const init = async () => {
       await loadRankings()
       const current = await loadMonths()
