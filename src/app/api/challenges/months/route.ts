@@ -3,10 +3,25 @@ import { NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 
-const monthValueUtc = (value: Date) => {
-  const year = value.getUTCFullYear()
-  const month = String(value.getUTCMonth() + 1).padStart(2, "0")
-  return `${year}-${month}`
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
+
+const monthValueInTz = (value: Date) => {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: APP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+    }).formatToParts(value)
+    const year = parts.find((part) => part.type === "year")?.value
+    const month = parts.find((part) => part.type === "month")?.value
+    if (year && month) {
+      return `${year}-${month}`
+    }
+  } catch {}
+
+  const fallbackYear = value.getUTCFullYear()
+  const fallbackMonth = String(value.getUTCMonth() + 1).padStart(2, "0")
+  return `${fallbackYear}-${fallbackMonth}`
 }
 
 export async function GET() {
@@ -28,7 +43,7 @@ export async function GET() {
     db.challenges.findMany({
       select: { scheduled_for: true, played_at: true, created_at: true },
       orderBy: { created_at: "desc" },
-      take: 200,
+      take: 1000,
     }),
     db.rounds.findFirst({
       where: { status: "open" },
@@ -40,20 +55,20 @@ export async function GET() {
   const monthSet = new Set<string>()
 
   rounds.forEach((round) => {
-    monthSet.add(monthValueUtc(round.reference_month))
+    monthSet.add(monthValueInTz(round.reference_month))
   })
 
   challenges.forEach((challenge) => {
     const value =
       challenge.played_at ?? challenge.scheduled_for ?? challenge.created_at
     if (value) {
-      monthSet.add(monthValueUtc(value))
+      monthSet.add(monthValueInTz(value))
     }
   })
 
   const currentMonth = openRound?.reference_month
-    ? monthValueUtc(openRound.reference_month)
-    : monthValueUtc(new Date())
+    ? monthValueInTz(openRound.reference_month)
+    : monthValueInTz(new Date())
 
   monthSet.add(currentMonth)
 

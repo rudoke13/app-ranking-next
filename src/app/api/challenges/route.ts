@@ -5,6 +5,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 import { resolveChallengeWindows } from "@/lib/domain/challenges"
 import { maxPositionsUp, ensureBaselineSnapshot, getAccessThreshold, monthStartFrom } from "@/lib/domain/ranking"
+import { shiftMonthValue } from "@/lib/date"
 import { hasAdminAccess } from "@/lib/domain/permissions"
 
 const createSchema = z.object({
@@ -45,6 +46,19 @@ const parseDate = (value?: string) => {
   return date
 }
 
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
+
+const toZonedMonthStart = (value: string) => {
+  const [yearRaw, monthRaw] = value.split("-")
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null
+  const utc = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0))
+  const tzDate = new Date(utc.toLocaleString("en-US", { timeZone: APP_TIMEZONE }))
+  const offset = utc.getTime() - tzDate.getTime()
+  return new Date(utc.getTime() + offset)
+}
+
 export async function GET(request: Request) {
   const session = await getSessionFromCookies()
   if (!session) {
@@ -75,13 +89,10 @@ export async function GET(request: Request) {
   const sortKey = parsed.data.sort ?? "recent"
 
   const monthValue = parsed.data.month
-  const monthStart = monthValue
-    ? new Date(`${monthValue}-01T00:00:00`)
+  const monthStart = monthValue ? toZonedMonthStart(monthValue) : null
+  const nextMonth = monthValue
+    ? toZonedMonthStart(shiftMonthValue(monthValue, 1))
     : null
-  const nextMonth = monthStart ? new Date(monthStart) : null
-  if (nextMonth) {
-    nextMonth.setMonth(nextMonth.getMonth() + 1)
-  }
 
   let rankingId: number | null = null
   if (rankingFilter) {
@@ -106,10 +117,11 @@ export async function GET(request: Request) {
   }
 
   if (monthStart && nextMonth) {
-    where.scheduled_for = {
-      gte: monthStart,
-      lt: nextMonth,
-    }
+    where.OR = [
+      { scheduled_for: { gte: monthStart, lt: nextMonth } },
+      { played_at: { gte: monthStart, lt: nextMonth } },
+      { created_at: { gte: monthStart, lt: nextMonth } },
+    ]
   }
 
   const challenges = await db.challenges.findMany({
