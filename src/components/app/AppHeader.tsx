@@ -37,9 +37,9 @@ export default function AppHeader({
           <UserAvatar
             name={appName}
             src={logoUrl}
-            size={32}
+            size="clamp(40px, 5vw, 48px)"
             fallbackLabel={logoLabel}
-            className="text-sm"
+            className="text-sm sm:text-base"
           />
           <span>{appName}</span>
         </Link>

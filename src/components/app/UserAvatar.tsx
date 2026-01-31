@@ -5,7 +5,7 @@ export type UserAvatarProps = {
   name: string
   src?: string | null
   fallbackLabel?: string
-  size?: number
+  size?: number | string
   className?: string
 }
 
@@ -23,13 +23,15 @@ export default function UserAvatar({
       ? src
       : null
 
+  const sizeValue = typeof size === "number" ? `${size}px` : size
+
   return (
     <div
       className={cn(
         "flex items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-semibold text-primary",
         className
       )}
-      style={{ width: size, height: size }}
+      style={{ width: sizeValue, height: sizeValue }}
       aria-label={name}
       role="img"
     >
