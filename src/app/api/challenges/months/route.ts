@@ -45,8 +45,8 @@ export async function GET() {
       take: 24,
     }),
     db.challenges.findMany({
-      select: { scheduled_for: true, played_at: true, created_at: true },
-      orderBy: { created_at: "desc" },
+      select: { scheduled_for: true, played_at: true },
+      orderBy: { scheduled_for: "desc" },
       take: 1000,
     }),
     db.rounds.findFirst({
@@ -63,18 +63,21 @@ export async function GET() {
   })
 
   challenges.forEach((challenge) => {
-    const value =
-      challenge.played_at ?? challenge.scheduled_for ?? challenge.created_at
-    if (value) {
-      monthSet.add(monthValueInTz(value))
+    if (challenge.scheduled_for) {
+      monthSet.add(monthValueInTz(challenge.scheduled_for))
+    }
+    if (challenge.played_at) {
+      monthSet.add(monthValueInTz(challenge.played_at))
     }
   })
 
   const currentMonth = openRound?.reference_month
     ? monthValueFromDateOnly(openRound.reference_month)
-    : monthValueInTz(new Date())
+    : null
 
-  monthSet.add(currentMonth)
+  if (currentMonth) {
+    monthSet.add(currentMonth)
+  }
 
   const months = Array.from(monthSet)
     .sort((a, b) => b.localeCompare(a))

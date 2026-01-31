@@ -117,11 +117,10 @@ export async function GET(request: Request) {
   }
 
   if (monthStart && nextMonth) {
-    where.OR = [
-      { scheduled_for: { gte: monthStart, lt: nextMonth } },
-      { played_at: { gte: monthStart, lt: nextMonth } },
-      { created_at: { gte: monthStart, lt: nextMonth } },
-    ]
+    where.scheduled_for = {
+      gte: monthStart,
+      lt: nextMonth,
+    }
   }
 
   const challenges = await db.challenges.findMany({
