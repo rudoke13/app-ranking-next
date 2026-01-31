@@ -18,13 +18,32 @@ const resolveEnv = (key: string) => {
   return value
 }
 
-export function getS3Client() {
-  const endpoint = resolveEnv("S3_ENDPOINT")
+const resolveEndpoint = (preferred?: string) => {
+  if (preferred) {
+    return preferred
+  }
+  return process.env.S3_ENDPOINT_INTERNAL?.trim() || resolveEnv("S3_ENDPOINT")
+}
+
+const resolveForcePathStyle = (endpoint: string) => {
+  if (process.env.S3_FORCE_PATH_STYLE === "true") {
+    return true
+  }
+
+  const lower = endpoint.toLowerCase()
+  if (lower.includes("localhost") || lower.includes("minio")) {
+    return true
+  }
+
+  return false
+}
+
+export function getS3Client(options?: { endpoint?: string }) {
+  const endpoint = resolveEndpoint(options?.endpoint?.trim())
   const region = process.env.S3_REGION ?? "us-east-1"
   const accessKeyId = resolveEnv("S3_ACCESS_KEY")
   const secretAccessKey = resolveEnv("S3_SECRET_KEY")
-  const forcePathStyle =
-    process.env.S3_FORCE_PATH_STYLE === "true" || endpoint.includes("localhost")
+  const forcePathStyle = resolveForcePathStyle(endpoint)
 
   return new S3Client({
     region,
@@ -122,7 +141,12 @@ export async function createPresignedPutUrl({
   contentType: string
   expiresIn?: number
 }) {
-  const client = getS3Client()
+  const publicEndpoint =
+    process.env.S3_PUBLIC_ENDPOINT?.trim() ||
+    process.env.S3_ENDPOINT?.trim()
+  const client = getS3Client(
+    publicEndpoint ? { endpoint: publicEndpoint } : undefined
+  )
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
