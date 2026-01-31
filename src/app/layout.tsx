@@ -7,31 +7,11 @@ import { getAdminLogoUrl } from "@/lib/branding"
 export async function generateMetadata(): Promise<Metadata> {
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
   const logoUrl = await getAdminLogoUrl()
-  const iconType = (url: string) => {
-    const clean = url.split("?")[0]
-    const ext = clean.split(".").pop()?.toLowerCase()
-    if (ext === "jpg" || ext === "jpeg") return "image/jpeg"
-    if (ext === "webp") return "image/webp"
-    if (ext === "png") return "image/png"
-    return "image/png"
+  const iconUrl = logoUrl ? "/favicon" : "/favicon.ico"
+  const icons = {
+    icon: [{ url: iconUrl }],
+    apple: [{ url: iconUrl }],
   }
-
-  const icons = logoUrl
-    ? {
-        icon: [
-          {
-            url: logoUrl,
-            type: iconType(logoUrl),
-          },
-        ],
-        apple: [
-          {
-            url: logoUrl,
-            type: iconType(logoUrl),
-          },
-        ],
-      }
-    : undefined
 
   return {
     title: appName,
