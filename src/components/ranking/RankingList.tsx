@@ -1072,6 +1072,8 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       : isOpenPhase
                       ? !viewerIsBlue
                       : true
+                    const targetBlueBlocked =
+                      isBluePhase && viewerIsBlue && player.isBluePoint
                     const withinRange =
                       viewerPosition > 0 &&
                       player.position > 0 &&
@@ -1087,6 +1089,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       showChallenge &&
                       clientCanChallenge &&
                       typeAllowed &&
+                      !targetBlueBlocked &&
                       rangeAllowed &&
                       !viewerHasChallenge &&
                       !targetHasChallenge &&
@@ -1096,6 +1099,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       Boolean(countdownText) &&
                       !viewerIsSuspended &&
                       showChallenge &&
+                      !targetBlueBlocked &&
                       rangeAllowed &&
                       !viewerHasChallenge &&
                       !targetHasChallenge &&

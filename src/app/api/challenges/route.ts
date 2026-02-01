@@ -380,6 +380,16 @@ export async function POST(request: Request) {
           { status: 422 }
         )
       }
+      if (challengedMembership.is_blue_point) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message:
+              "Durante o ponto azul nao e permitido desafiar outro jogador ponto azul.",
+          },
+          { status: 422 }
+        )
+      }
     } else {
       if (now < window.openStart) {
         return NextResponse.json(
