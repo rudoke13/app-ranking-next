@@ -49,6 +49,8 @@ export default function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
+        <link rel="icon" href="/favicon" />
+        <link rel="apple-touch-icon" href="/favicon" />
       </head>
       <body
         className="min-h-screen bg-background text-foreground antialiased font-sans"
