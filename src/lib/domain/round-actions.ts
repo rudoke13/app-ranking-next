@@ -207,16 +207,70 @@ const evaluateBluePoints = async (
     1,
     rankingConfig.bluePointPolicy.consecutiveChallengesThreshold
   )
-  const members = await db.ranking_memberships.findMany({
-    where: { ranking_id: rankingId },
-    select: { user_id: true },
+  const [members, ranking] = await Promise.all([
+    db.ranking_memberships.findMany({
+      where: { ranking_id: rankingId },
+      select: {
+        user_id: true,
+        position: true,
+        is_access_challenge: true,
+        is_suspended: true,
+        is_blue_point: true,
+      },
+    }),
+    db.rankings.findUnique({
+      where: { id: rankingId },
+      select: { slug: true },
+    }),
+  ])
+
+  const updateData: Array<{
+    userId: number
+    enabled: boolean
+    locked: boolean
+  }> = []
+
+  const accessLimit = getAccessThreshold(ranking?.slug) ?? null
+  const maxUp = rankingConfig.maxPositionsUp
+  const positionByUser = new Map<number, number>()
+  Object.entries(positions).forEach(([pos, userId]) => {
+    const id = Number(userId)
+    const position = Number(pos)
+    if (Number.isFinite(id) && Number.isFinite(position)) {
+      positionByUser.set(id, position)
+    }
   })
 
-  const updateData: Array<{ userId: number; enabled: boolean }> = []
+  const { start, end } = monthRange(monthStart)
+  const monthChallenges = await db.challenges.findMany({
+    where: {
+      ranking_id: rankingId,
+      OR: [
+        {
+          status: "completed",
+          played_at: { gte: start, lt: end },
+        },
+        {
+          status: { in: ["scheduled", "accepted"] },
+          scheduled_for: { gte: start, lt: end },
+        },
+      ],
+    },
+    select: { challenger_id: true, challenged_id: true },
+  })
+
+  const hasChallenge = new Set<number>()
+  monthChallenges.forEach((challenge) => {
+    hasChallenge.add(challenge.challenger_id)
+    hasChallenge.add(challenge.challenged_id)
+  })
+
+  const membersById = new Map(members.map((member) => [member.user_id, member]))
 
   for (const member of members) {
     const userId = member.user_id
-    const position = positions[userId] ?? 0
+    const position =
+      positionByUser.get(userId) ?? member.position ?? positions[userId] ?? 0
     let challengedConsecutive = true
 
     for (let index = 0; index < threshold; index += 1) {
@@ -237,14 +291,41 @@ const evaluateBluePoints = async (
       }
     }
 
-    const enabled = position > 1 && challengedConsecutive
-    updateData.push({ userId, enabled })
+    let locked = false
+    if (
+      position > 1 &&
+      !member.is_suspended &&
+      !hasChallenge.has(userId)
+    ) {
+      locked = true
+      for (const target of members) {
+        if (target.user_id === userId) continue
+        if (target.is_suspended) continue
+        const targetPos =
+          positionByUser.get(target.user_id) ?? target.position ?? 0
+        if (targetPos <= 0) continue
+        const isAccess = Boolean(member.is_access_challenge)
+        if (isAccess) {
+          if (accessLimit && targetPos < accessLimit) continue
+        } else {
+          if (targetPos >= position) continue
+          if (position - targetPos > maxUp) continue
+        }
+        if (member.is_blue_point && target.is_blue_point) continue
+        if (hasChallenge.has(target.user_id)) continue
+        locked = false
+        break
+      }
+    }
+
+    const enabled = (position > 1 && challengedConsecutive) || locked
+    updateData.push({ userId, enabled, locked })
   }
 
   for (const item of updateData) {
     await db.ranking_memberships.updateMany({
       where: { ranking_id: rankingId, user_id: item.userId },
-      data: { is_blue_point: item.enabled },
+      data: { is_blue_point: item.enabled, is_locked: item.locked },
     })
   }
 }
