@@ -1181,7 +1181,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                             <div className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 sm:w-auto sm:flex-row sm:items-center">
                               {showChallenge ? (
                                 <Button
-                                  className="h-8 w-8 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
+                                  className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
                                   disabled={
                                     !canChallenge ||
                                     actionLoading === player.userId
