@@ -1003,9 +1003,10 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
               </div>
             ) : null}
 
-            <div className="space-y-3">
+            <div className="space-y-2 sm:space-y-3">
               {activePlayers.length ? (
                 activePlayers.map((player, index) => {
+                    const badgeClassName = "px-2 py-0.5 text-[11px] sm:py-1 sm:text-xs"
                     const name = formatName(
                       player.firstName,
                       player.lastName,
@@ -1024,7 +1025,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         label: "Ponto azul",
                         tone: "info",
                         className:
-                          "border-sky-400 bg-sky-500/90 text-white shadow-sm dark:border-sky-300 dark:bg-sky-400/90 dark:text-slate-900",
+                          `${badgeClassName} border-sky-400 bg-sky-500/90 text-white shadow-sm dark:border-sky-300 dark:bg-sky-400/90 dark:text-slate-900`,
                       })
                     }
 
@@ -1040,6 +1041,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                               ? "Vitoria"
                               : "Derrota",
                           tone: resultTone[player.summary.result],
+                          className: badgeClassName,
                         })
                       } else if (player.summary.status) {
                         const labelMap: Record<PlayerSummary["status"], string> = {
@@ -1053,6 +1055,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         statusBadges.push({
                           label: labelMap[player.summary.status],
                           tone: statusTone[player.summary.status],
+                          className: badgeClassName,
                         })
                       }
                     }
@@ -1103,7 +1106,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         ? "bg-sky-50/80 dark:bg-slate-900/60"
                         : "bg-white dark:bg-slate-800/60"
                     const rowTone = player.isBluePoint
-                      ? "bg-sky-100/90 dark:bg-sky-900/40"
+                      ? "bg-sky-100 dark:bg-sky-900/45"
                       : baseRowTone
                     const blueHighlight = player.isBluePoint
                       ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
@@ -1115,7 +1118,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         key={player.userId}
                         className={`shadow-none ${
                           editing ? "cursor-grab border-dashed" : ""
-                        } ${rowTone} ${blueHighlight} ${
+                        } py-3 sm:py-6 ${rowTone} ${blueHighlight} ${
                           isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
                         }`}
                         draggable={editing}
@@ -1127,24 +1130,24 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         onDragEnd={handleDragEnd}
                         aria-grabbed={editing && isDragging}
                       >
-                        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex items-center gap-4">
+                        <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6">
+                          <div className="flex items-center gap-3 sm:gap-4">
                             {editing ? (
-                              <div className="flex size-8 items-center justify-center text-muted-foreground">
-                                <GripVertical className="size-4" />
+                              <div className="flex size-7 items-center justify-center text-muted-foreground sm:size-8">
+                                <GripVertical className="size-4 sm:size-5" />
                               </div>
                             ) : null}
                             <UserAvatar
                               name={name}
                               src={player.avatarUrl}
-                              size={40}
+                              size="clamp(30px, 9vw, 40px)"
                             />
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex size-9 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shadow-sm">
+                                <div className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
                                   {positionLabel}
                                 </div>
-                                <p className="text-sm font-semibold text-foreground">
+                                <p className="text-[13px] font-semibold text-foreground sm:text-sm">
                                   {name}
                                 </p>
                               </div>
@@ -1159,21 +1162,25 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                                     />
                                   ))
                                 ) : (
-                                  <StatPill label="Sem historico" tone="neutral" />
+                                  <StatPill
+                                    label="Sem historico"
+                                    tone="neutral"
+                                    className={badgeClassName}
+                                  />
                                 )}
                               </div>
                               {showCountdown ? (
-                                <p className="text-xs font-semibold text-destructive">
+                                <p className="text-[11px] font-semibold text-destructive sm:text-xs">
                                   {countdownText}
                                 </p>
                               ) : null}
                             </div>
                           </div>
                           {showChallenge || showAdminEdit ? (
-                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                            <div className="flex w-full flex-row flex-wrap gap-2 sm:w-auto sm:flex-row sm:items-center">
                               {showChallenge ? (
                                 <Button
-                                  className="w-full sm:w-auto"
+                                  className="h-8 flex-1 text-xs sm:h-9 sm:flex-none sm:text-sm"
                                   disabled={
                                     !canChallenge ||
                                     actionLoading === player.userId
@@ -1187,12 +1194,12 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                               ) : null}
                               {showAdminEdit ? (
                                 <Button
-                                  className="w-full sm:w-auto"
+                                  className="h-8 flex-1 text-xs sm:h-9 sm:flex-none sm:text-sm"
                                   size="sm"
                                   variant="outline"
                                   onClick={() => openEditModal(player)}
                                 >
-                                  <Pencil className="size-4" />
+                                  <Pencil className="size-3.5 sm:size-4" />
                                   Editar
                                 </Button>
                               ) : null}
