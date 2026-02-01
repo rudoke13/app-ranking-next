@@ -1003,10 +1003,11 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
               </div>
             ) : null}
 
-            <div className="space-y-2 sm:space-y-3">
+            <div className="space-y-1.5 sm:space-y-3">
               {activePlayers.length ? (
                 activePlayers.map((player, index) => {
-                    const badgeClassName = "px-2 py-0.5 text-[11px] sm:py-1 sm:text-xs"
+                    const badgeClassName =
+                      "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
                     const name = formatName(
                       player.firstName,
                       player.lastName,
@@ -1118,7 +1119,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         key={player.userId}
                         className={`shadow-none ${
                           editing ? "cursor-grab border-dashed" : ""
-                        } py-3 sm:py-6 ${rowTone} ${blueHighlight} ${
+                        } py-2 sm:py-6 ${rowTone} ${blueHighlight} ${
                           isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
                         }`}
                         draggable={editing}
@@ -1130,28 +1131,28 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         onDragEnd={handleDragEnd}
                         aria-grabbed={editing && isDragging}
                       >
-                        <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6">
-                          <div className="flex items-center gap-3 sm:gap-4">
+                        <CardContent className="flex flex-col gap-1.5 px-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6">
+                          <div className="flex items-center gap-2.5 sm:gap-4">
                             {editing ? (
-                              <div className="flex size-7 items-center justify-center text-muted-foreground sm:size-8">
-                                <GripVertical className="size-4 sm:size-5" />
+                              <div className="flex size-6 items-center justify-center text-muted-foreground sm:size-8">
+                                <GripVertical className="size-3.5 sm:size-5" />
                               </div>
                             ) : null}
                             <UserAvatar
                               name={name}
                               src={player.avatarUrl}
-                              size="clamp(30px, 9vw, 40px)"
+                              size="clamp(26px, 8vw, 36px)"
                             />
-                            <div className="space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex size-8 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
+                            <div className="space-y-1.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <div className="flex size-7 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
                                   {positionLabel}
                                 </div>
-                                <p className="text-[13px] font-semibold text-foreground sm:text-sm">
+                                <p className="text-[12px] font-semibold text-foreground sm:text-sm">
                                   {name}
                                 </p>
                               </div>
-                              <div className="flex flex-wrap gap-2">
+                              <div className="flex flex-wrap gap-1.5">
                                 {statusBadges.length ? (
                                   statusBadges.map((status) => (
                                     <StatPill
@@ -1170,17 +1171,17 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                                 )}
                               </div>
                               {showCountdown ? (
-                                <p className="text-[11px] font-semibold text-destructive sm:text-xs">
+                                <p className="text-[10px] font-semibold text-destructive sm:text-xs">
                                   {countdownText}
                                 </p>
                               ) : null}
                             </div>
                           </div>
                           {showChallenge || showAdminEdit ? (
-                            <div className="flex w-full flex-row flex-wrap gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <div className="flex w-full flex-row flex-wrap gap-1.5 sm:w-auto sm:flex-row sm:items-center">
                               {showChallenge ? (
                                 <Button
-                                  className="h-8 flex-1 text-xs sm:h-9 sm:flex-none sm:text-sm"
+                                  className="h-7 flex-1 text-[11px] sm:h-9 sm:flex-none sm:text-sm"
                                   disabled={
                                     !canChallenge ||
                                     actionLoading === player.userId
@@ -1194,12 +1195,12 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                               ) : null}
                               {showAdminEdit ? (
                                 <Button
-                                  className="h-8 flex-1 text-xs sm:h-9 sm:flex-none sm:text-sm"
+                                  className="h-7 flex-1 text-[11px] sm:h-9 sm:flex-none sm:text-sm"
                                   size="sm"
                                   variant="outline"
                                   onClick={() => openEditModal(player)}
                                 >
-                                  <Pencil className="size-3.5 sm:size-4" />
+                                  <Pencil className="size-3 sm:size-4" />
                                   Editar
                                 </Button>
                               ) : null}
