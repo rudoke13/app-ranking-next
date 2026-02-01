@@ -7,7 +7,7 @@ export const rankingConfig = {
   accessEntryRules: {
     "ranking-masculino": 30,
     "ranking-feminino": 10,
-    "ranking-master-45": 30,
+    "ranking-master-45": 20,
   },
   bluePointPolicy: {
     consecutiveChallengesThreshold: 2,
