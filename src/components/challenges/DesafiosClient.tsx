@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { CircleX, Filter, Swords, Trophy } from "lucide-react"
+import { CircleX, Clock, Filter, Swords, Trophy } from "lucide-react"
 
 import ChallengeCard, {
   type ChallengeItem,
@@ -151,8 +151,12 @@ export default function DesafiosClient({
     let games = 0
     let wins = 0
     let losses = 0
+    let pending = 0
 
     challenges.forEach((challenge) => {
+      if (challenge.status === "scheduled" || challenge.status === "accepted") {
+        pending += 1
+      }
       if (challenge.status !== "completed") return
       games += 1
       if (!challenge.winner) return
@@ -164,7 +168,7 @@ export default function DesafiosClient({
       }
     })
 
-    return { games, wins, losses }
+    return { games, wins, losses, pending }
   }, [challenges])
 
   const loadRankings = useCallback(async () => {
@@ -705,9 +709,9 @@ export default function DesafiosClient({
       </Card>
 
       <Card>
-        <CardContent className="grid gap-4 sm:grid-cols-3">
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {loading ? (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: 4 }).map((_, index) => (
               <Skeleton key={`challenge-metric-${index}`} className="h-24 w-full" />
             ))
           ) : (
@@ -722,6 +726,18 @@ export default function DesafiosClient({
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Concluidos no filtro
+                </p>
+              </div>
+              <div className="rounded-lg border bg-muted/50 p-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>Pendentes</span>
+                  <Clock className="size-4 text-warning" />
+                </div>
+                <p className="mt-2 text-2xl font-semibold">
+                  {challengeMetrics.pending}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Desafios agendados ou aceitos
                 </p>
               </div>
               <div className="rounded-lg border bg-muted/50 p-4">
