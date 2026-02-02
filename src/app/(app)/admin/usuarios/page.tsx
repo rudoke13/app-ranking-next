@@ -314,6 +314,7 @@ export default function AdminUsuariosPage() {
       phone: "",
       role: "player",
       rankingId: "",
+      collaboratorRankingIds: [],
       password: "",
       passwordConfirm: "",
     })

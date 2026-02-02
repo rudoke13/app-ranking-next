@@ -291,6 +291,11 @@ export async function PATCH(
         updatedUser = await tx.users.update({
           where: { id: userId },
           data: updates,
+          include: {
+            ranking_memberships: {
+              select: { id: true, ranking_id: true },
+            },
+          },
         })
       }
 
