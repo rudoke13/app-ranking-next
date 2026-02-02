@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-import { getAdminLogoUrl } from "@/lib/branding"
+import { getAppBranding } from "@/lib/branding"
 
 const inferIconType = (url: string) => {
   const clean = url.split("?")[0]
@@ -12,19 +12,20 @@ const inferIconType = (url: string) => {
 }
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
-  const logoUrl = await getAdminLogoUrl()
-  const icons = logoUrl
+  const branding = await getAppBranding()
+  const appName = branding.appName
+  const baseIcon = branding.pwaIconUrl ?? branding.logoUrl
+  const icons = baseIcon
     ? [
         {
-          src: logoUrl,
+          src: baseIcon,
           sizes: "192x192",
-          type: inferIconType(logoUrl),
+          type: inferIconType(baseIcon),
         },
         {
-          src: logoUrl,
+          src: baseIcon,
           sizes: "512x512",
-          type: inferIconType(logoUrl),
+          type: inferIconType(baseIcon),
         },
       ]
     : [

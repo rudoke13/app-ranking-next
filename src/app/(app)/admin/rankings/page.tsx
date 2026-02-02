@@ -15,6 +15,7 @@ type RankingItem = {
   slug: string
   description: string | null
   activePlayers: number
+  isActive: boolean
 }
 
 export default function AdminRankingsPage() {
@@ -24,7 +25,7 @@ export default function AdminRankingsPage() {
 
   const loadRankings = async () => {
     setLoading(true)
-    const response = await apiGet<RankingItem[]>("/api/rankings")
+    const response = await apiGet<RankingItem[]>("/api/admin/rankings")
     if (!response.ok) {
       setError(response.message)
       setLoading(false)
@@ -75,6 +76,9 @@ export default function AdminRankingsPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={ranking.isActive ? "secondary" : "outline"}>
+                    {ranking.isActive ? "Ativo" : "Inativo"}
+                  </Badge>
                   <Badge variant="secondary">
                     {ranking.activePlayers} ativos
                   </Badge>

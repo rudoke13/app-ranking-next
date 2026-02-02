@@ -139,6 +139,7 @@ model rankings {
   name                String                @db.VarChar(120)
   slug                String                @unique(map: "slug") @db.VarChar(120)
   description         String?               @db.Text
+  is_active           Boolean               @default(true)
   created_at          DateTime?             @default(now()) @db.Timestamp(0)
   blue_point_history  blue_point_history[]
   challenges          challenges[]
@@ -216,11 +217,27 @@ model users {
   challenges_challenges_challenged_idTousers  challenges[]          @relation("challenges_challenged_idTousers")
   challenges_challenges_challenger_idTousers  challenges[]          @relation("challenges_challenger_idTousers")
   collaborator_rankings                      collaborator_rankings[]
+  app_settings                                app_settings[]       @relation("app_settings_user")
   ranking_memberships                         ranking_memberships[]
   ranking_snapshots                           ranking_snapshots[]
   rounds_rounds_featured_challenged_idTousers rounds[]              @relation("rounds_featured_challenged_idTousers")
   rounds_rounds_featured_challenger_idTousers rounds[]              @relation("rounds_featured_challenger_idTousers")
   rounds_rounds_updated_byTousers             rounds[]              @relation("rounds_updated_byTousers")
+}
+
+model app_settings {
+  id                   Int       @id @default(autoincrement()) @db.UnsignedInt
+  app_name             String?   @db.VarChar(150)
+  logo_url             String?   @db.VarChar(255)
+  favicon_url          String?   @db.VarChar(255)
+  pwa_icon_url         String?   @db.VarChar(255)
+  maintenance_enabled  Boolean   @default(false)
+  maintenance_message  String?   @db.Text
+  updated_at           DateTime? @default(now()) @db.Timestamp(0)
+  updated_by           Int?      @db.UnsignedInt
+  users                users?    @relation("app_settings_user", fields: [updated_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_app_settings_user")
+
+  @@index([updated_by], map: "fk_app_settings_user")
 }
 
 enum users_role {

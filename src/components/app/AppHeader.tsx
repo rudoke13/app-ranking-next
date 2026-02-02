@@ -12,6 +12,7 @@ export type AppHeaderProps = {
   avatarUrl?: string | null
   logoUrl?: string | null
   logoLabel?: string
+  appName?: string
 }
 
 const roleLabel: Record<Role, string> = {
@@ -27,8 +28,12 @@ export default function AppHeader({
   avatarUrl,
   logoUrl,
   logoLabel = "TCC",
+  appName: appNameOverride,
 }: AppHeaderProps) {
-  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
+  const appName =
+    appNameOverride?.trim() ??
+    process.env.NEXT_PUBLIC_APP_NAME ??
+    "Ranking Tenis TCC"
 
   return (
     <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur">

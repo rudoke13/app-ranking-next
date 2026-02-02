@@ -3,6 +3,8 @@ const contentTypeToExt: Record<string, string> = {
   "image/jpg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/x-icon": "ico",
 }
 
 export function inferExtFromContentType(contentType: string) {

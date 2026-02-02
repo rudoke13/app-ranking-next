@@ -1,9 +1,10 @@
 import AppHeader from "@/components/app/AppHeader"
 import BottomNav from "@/components/app/BottomNav"
+import MaintenanceView from "@/components/app/MaintenanceView"
 import PageContainer from "@/components/app/PageContainer"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
-import { getAdminLogoUrl } from "@/lib/branding"
+import { getAppBranding } from "@/lib/branding"
 
 export default async function SessionGate({
   children,
@@ -14,7 +15,17 @@ export default async function SessionGate({
   const role = session?.role ?? "player"
   let name = session?.name ?? "Rodolfo Lelis"
   let avatarUrl: string | null = null
-  let logoUrl: string | null = null
+  const branding = await getAppBranding()
+
+  if (branding.maintenanceEnabled && role !== "admin") {
+    return (
+      <MaintenanceView
+        appName={branding.appName}
+        logoUrl={branding.logoUrl}
+        message={branding.maintenanceMessage}
+      />
+    )
+  }
 
   if (session?.userId) {
     const userId = Number(session.userId)
@@ -41,16 +52,15 @@ export default async function SessionGate({
     }
   }
 
-  logoUrl = await getAdminLogoUrl()
-
   return (
     <>
       <AppHeader
         name={name}
         role={role}
         avatarUrl={avatarUrl}
-        logoUrl={logoUrl}
+        logoUrl={branding.logoUrl}
         logoLabel="TCC"
+        appName={branding.appName}
       />
       <PageContainer>{children}</PageContainer>
       <BottomNav role={role} />

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
 
@@ -85,7 +86,6 @@ export default function AdminUsuariosPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [viewerRole, setViewerRole] = useState<string>("player")
-  const [allowedRankingIds, setAllowedRankingIds] = useState<number[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -152,7 +152,6 @@ export default function AdminUsuariosPage() {
 
     setUsers(usersResponse.data.users)
     setViewerRole(usersResponse.data.viewer.role)
-    setAllowedRankingIds(usersResponse.data.viewer.allowedRankingIds)
     setMembershipRankingMap({})
     if (rankingsResponse.ok) {
       const nextRankings = rankingsResponse.data
@@ -498,9 +497,16 @@ export default function AdminUsuariosPage() {
         title="Administracao de usuarios"
         subtitle="Gerencie acessos e permissoes"
         action={
-          <Button onClick={showCreate ? closeCreate : openCreate}>
-            {showCreate ? "Fechar cadastro" : "Novo usuario"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {viewerRole === "admin" ? (
+              <Button asChild variant="outline">
+                <Link href="/admin/configuracoes">Configuracoes</Link>
+              </Button>
+            ) : null}
+            <Button onClick={showCreate ? closeCreate : openCreate}>
+              {showCreate ? "Fechar cadastro" : "Novo usuario"}
+            </Button>
+          </div>
         }
       />
 

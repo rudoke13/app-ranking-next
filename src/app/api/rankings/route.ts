@@ -12,7 +12,10 @@ export async function GET() {
     )
   }
 
+  const isAdmin = session.role === "admin"
+
   const rankings = await db.rankings.findMany({
+    where: isAdmin ? undefined : { is_active: true },
     orderBy: { name: "asc" },
   })
 

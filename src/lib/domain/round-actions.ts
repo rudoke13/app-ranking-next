@@ -265,8 +265,6 @@ const evaluateBluePoints = async (
     hasChallenge.add(challenge.challenged_id)
   })
 
-  const membersById = new Map(members.map((member) => [member.user_id, member]))
-
   for (const member of members) {
     const userId = member.user_id
     const position =

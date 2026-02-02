@@ -117,6 +117,10 @@ export async function GET(request: Request) {
     }
   }
 
+  if (!isAdmin) {
+    where.rankings = { is_active: true }
+  }
+
   const challenges = await db.challenges.findMany({
     where,
     select: {
@@ -304,7 +308,7 @@ export async function POST(request: Request) {
     where: { id: rankingId },
   })
 
-  if (!ranking) {
+  if (!ranking || (!ranking.is_active && !isAdmin)) {
     return NextResponse.json(
       { ok: false, message: "Ranking invalido." },
       { status: 404 }

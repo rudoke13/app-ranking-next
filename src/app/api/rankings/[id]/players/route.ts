@@ -78,7 +78,7 @@ export async function GET(
     where: { id: rankingId },
   })
 
-  if (!ranking) {
+  if (!ranking || (!ranking.is_active && session.role !== "admin")) {
     return NextResponse.json(
       { ok: false, message: "Ranking nao encontrado." },
       { status: 404 }

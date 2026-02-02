@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { getAdminLogoUrl } from "@/lib/branding"
+import { getAppBranding } from "@/lib/branding"
 
 const inferContentType = (url: string) => {
   const clean = url.split("?")[0]
@@ -13,7 +13,8 @@ const inferContentType = (url: string) => {
 }
 
 export async function GET(request: Request) {
-  const logoUrl = await getAdminLogoUrl()
+  const branding = await getAppBranding()
+  const logoUrl = branding.faviconUrl ?? branding.logoUrl
 
   if (logoUrl) {
     try {

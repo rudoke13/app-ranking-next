@@ -20,3 +20,50 @@ export async function getAdminLogoUrl() {
     return null
   }
 }
+
+export type AppBranding = {
+  appName: string
+  logoUrl: string | null
+  faviconUrl: string | null
+  pwaIconUrl: string | null
+  maintenanceEnabled: boolean
+  maintenanceMessage: string | null
+}
+
+export async function getAppBranding(): Promise<AppBranding> {
+  const fallbackName =
+    process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tenis TCC"
+
+  try {
+    const settings = await db.app_settings.findFirst({
+      orderBy: { id: "asc" },
+    })
+
+    const appName = settings?.app_name?.trim() || fallbackName
+    const logoFallback = settings?.logo_url ? null : await getAdminLogoUrl()
+    const logoUrl = settings?.logo_url ?? logoFallback
+    const faviconUrl =
+      settings?.favicon_url ?? settings?.logo_url ?? logoFallback
+    const pwaIconUrl =
+      settings?.pwa_icon_url ?? settings?.logo_url ?? logoFallback
+
+    return {
+      appName,
+      logoUrl: logoUrl ?? null,
+      faviconUrl: faviconUrl ?? null,
+      pwaIconUrl: pwaIconUrl ?? null,
+      maintenanceEnabled: settings?.maintenance_enabled ?? false,
+      maintenanceMessage: settings?.maintenance_message ?? null,
+    }
+  } catch {
+    const logoFallback = await getAdminLogoUrl()
+    return {
+      appName: fallbackName,
+      logoUrl: logoFallback ?? null,
+      faviconUrl: logoFallback ?? null,
+      pwaIconUrl: logoFallback ?? null,
+      maintenanceEnabled: false,
+      maintenanceMessage: null,
+    }
+  }
+}

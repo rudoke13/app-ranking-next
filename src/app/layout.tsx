@@ -2,12 +2,12 @@ import type { Metadata } from "next"
 import Script from "next/script"
 import "./globals.css"
 
-import { getAdminLogoUrl } from "@/lib/branding"
+import { getAppBranding } from "@/lib/branding"
 
 export async function generateMetadata(): Promise<Metadata> {
-  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tênis TCC"
-  const logoUrl = await getAdminLogoUrl()
-  const iconUrl = logoUrl ? "/favicon" : "/favicon.ico"
+  const branding = await getAppBranding()
+  const appName = branding.appName
+  const iconUrl = branding.faviconUrl ? "/favicon" : "/favicon.ico"
   const icons = {
     icon: [{ url: iconUrl }],
     apple: [{ url: iconUrl }],
@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: appName,
-    description: "Plataforma de ranking e desafios do Tênis TCC.",
+    description: "Plataforma de ranking e desafios do Tenis TCC.",
     manifest: "/manifest.webmanifest",
     themeColor: "#0b1218",
     icons,
