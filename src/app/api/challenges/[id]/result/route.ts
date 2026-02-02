@@ -5,6 +5,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 import { hasAdminAccess } from "@/lib/domain/permissions"
 import { ensureBaselineSnapshot, monthStartFrom } from "@/lib/domain/ranking"
+import { parseAppDateTime } from "@/lib/timezone"
 
 const penaltySchema = z.object({
   target: z.enum(["challenger", "challenged", "both"]),
@@ -25,13 +26,6 @@ const resultSchema = z.object({
   double_walkover: z.boolean().optional(),
   penalties: z.array(penaltySchema).optional(),
 })
-
-const parseDate = (value?: string) => {
-  if (!value) return null
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
-}
 
 export async function POST(
   request: Request,
@@ -134,7 +128,7 @@ export async function POST(
     )
   }
 
-  const playedAt = parseDate(data.played_at) ?? new Date()
+  const playedAt = parseAppDateTime(data.played_at) ?? new Date()
   const monthStart = monthStartFrom(playedAt)
 
   await ensureBaselineSnapshot(challenge.ranking_id, monthStart)

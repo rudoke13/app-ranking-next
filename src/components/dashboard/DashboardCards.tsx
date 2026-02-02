@@ -26,6 +26,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet } from "@/lib/http"
+import { formatDateInAppTz, formatMonthYearInAppTz } from "@/lib/timezone-client"
 
 const statusTone = {
   scheduled: "warning",
@@ -113,11 +114,7 @@ type DashboardData = {
 }
 
 const formatDate = (value: string | null) => {
-  if (!value) return "-"
-  return new Date(value).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-  })
+  return formatDateInAppTz(value)
 }
 
 const formatScore = (score: DashboardData["recentResults"][number]["score"]) => {
@@ -184,10 +181,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
   }
 
   const monthLabel = data.round
-    ? new Date(data.round.referenceMonth).toLocaleDateString("pt-BR", {
-        month: "long",
-        year: "numeric",
-      })
+    ? formatMonthYearInAppTz(data.round.referenceMonth, "Rodada")
     : "Rodada"
 
   return (

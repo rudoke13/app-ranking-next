@@ -7,6 +7,7 @@ import { resolveChallengeWindows } from "@/lib/domain/challenges"
 import { maxPositionsUp, ensureBaselineSnapshot, getAccessThreshold, monthStartFrom } from "@/lib/domain/ranking"
 import { shiftMonthValue } from "@/lib/date"
 import { hasAdminAccess } from "@/lib/domain/permissions"
+import { parseAppDateTime } from "@/lib/timezone"
 
 const createSchema = z.object({
   ranking_id: z.number().int().positive(),
@@ -37,13 +38,6 @@ const formatName = (first?: string | null, last?: string | null, nickname?: stri
     return full ? `${full} "${nickname.trim()}"` : nickname.trim()
   }
   return full || "Jogador"
-}
-
-const parseDate = (value?: string) => {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date
 }
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
@@ -486,7 +480,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const scheduledFor = parseDate(parsed.data.scheduled_for) ?? now
+  const scheduledFor = parseAppDateTime(parsed.data.scheduled_for) ?? now
   const monthStart = monthStartFrom(scheduledFor)
   const monthEnd = new Date(monthStart)
   monthEnd.setMonth(monthEnd.getMonth() + 1)

@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { formatDateTimeInAppTz, toDateTimeInputInAppTz } from "@/lib/timezone-client"
 import {
   Select,
   SelectContent,
@@ -85,20 +86,9 @@ export default function ChallengeCard({
   const [editChallengedGames, setEditChallengedGames] = useState("")
   const [now, setNow] = useState(() => Date.now())
 
-  const formatDateTime = (value: string) => {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return "—"
-    return date.toLocaleString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
-
-  const scheduledLabel = formatDateTime(challenge.scheduledFor)
+  const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor)
   const playedLabel = challenge.playedAt
-    ? formatDateTime(challenge.playedAt)
+    ? formatDateTimeInAppTz(challenge.playedAt)
     : null
   const cancelDeadline = useMemo(() => {
     if (!challenge.cancelWindowClosesAt) return null
@@ -128,15 +118,6 @@ export default function ChallengeCard({
           label: statusLabel[challenge.status],
           tone: statusTone[challenge.status],
         }
-
-  const toDateTimeInput = (value: string) => {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ""
-    const pad = (val: number) => String(val).padStart(2, "0")
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-      date.getDate()
-    )}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  }
 
   const defaultResultType = useMemo(() => {
     if (challenge.status !== "completed") return "none"
@@ -245,8 +226,10 @@ export default function ChallengeCard({
   }
 
   const openEdit = () => {
-    setEditScheduledFor(toDateTimeInput(challenge.scheduledFor))
-    setEditPlayedAt(toDateTimeInput(challenge.playedAt ?? challenge.scheduledFor))
+    setEditScheduledFor(toDateTimeInputInAppTz(challenge.scheduledFor))
+    setEditPlayedAt(
+      toDateTimeInputInAppTz(challenge.playedAt ?? challenge.scheduledFor)
+    )
     setEditResultType(defaultResultType)
     setEditChallengerGames(
       challenge.challengerGames !== null

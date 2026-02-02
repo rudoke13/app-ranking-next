@@ -21,6 +21,11 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPost } from "@/lib/http"
+import {
+  formatMonthYearInAppTz,
+  nowInAppTimeZone,
+  toDateTimeInputInAppTz,
+} from "@/lib/timezone-client"
 
 type RankingItem = {
   id: number
@@ -38,8 +43,7 @@ const monthValue = (date: Date) => {
   return `${year}-${month}`
 }
 
-const monthLabel = (date: Date) =>
-  date.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+const monthLabel = (date: Date) => formatMonthYearInAppTz(date)
 
 const monthDateFromValue = (value: string) => {
   const [yearRaw, monthRaw] = value.split("-")
@@ -49,13 +53,6 @@ const monthDateFromValue = (value: string) => {
     return new Date(value)
   }
   return new Date(year, month - 1, 1)
-}
-
-const toDateTimeInput = (date: Date) => {
-  const pad = (value: number) => String(value).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
-  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 const formatName = (
@@ -112,7 +109,7 @@ export default function DesafiosClient({
 }: DesafiosClientProps) {
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [rankingFilter, setRankingFilter] = useState("all")
-  const [monthFilter, setMonthFilter] = useState(monthValue(new Date()))
+  const [monthFilter, setMonthFilter] = useState(monthValue(nowInAppTimeZone()))
   const [statusFilter, setStatusFilter] = useState("all")
   const [sortFilter, setSortFilter] = useState("recent")
   const [challenges, setChallenges] = useState<ChallengeItem[]>([])
@@ -123,7 +120,7 @@ export default function DesafiosClient({
   const [createChallengerId, setCreateChallengerId] = useState("")
   const [createChallengedId, setCreateChallengedId] = useState("")
   const [createScheduledFor, setCreateScheduledFor] = useState(
-    toDateTimeInput(new Date())
+    toDateTimeInputInAppTz(nowInAppTimeZone())
   )
   const [createResultType, setCreateResultType] = useState("none")
   const [createChallengerGames, setCreateChallengerGames] = useState("")
@@ -138,7 +135,7 @@ export default function DesafiosClient({
 
   const fallbackMonths = useMemo(() => {
     const list: MonthOption[] = []
-    const now = new Date()
+    const now = nowInAppTimeZone()
     const base = new Date(now.getFullYear(), now.getMonth(), 1)
     for (let index = 0; index < 6; index += 1) {
       const date = new Date(base)
@@ -186,7 +183,8 @@ export default function DesafiosClient({
       return monthValue(new Date())
     }
 
-    const current = response.data.currentMonth ?? monthValue(new Date())
+    const current =
+      response.data.currentMonth ?? monthValue(nowInAppTimeZone())
     const list = response.data.months
       .map((value) => ({ value, label: monthLabel(monthDateFromValue(value)) }))
       .sort((a, b) => b.value.localeCompare(a.value))
@@ -247,7 +245,7 @@ export default function DesafiosClient({
     if (!months.length) return
     const hasCurrent = months.some((option) => option.value === monthFilter)
     if (!hasCurrent) {
-      setMonthFilter(months[0]?.value ?? monthValue(new Date()))
+      setMonthFilter(months[0]?.value ?? monthValue(nowInAppTimeZone()))
     }
   }, [months, monthFilter])
 

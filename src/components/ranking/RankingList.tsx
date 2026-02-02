@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select"
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
+import { formatDateTimeInAppTz } from "@/lib/timezone-client"
 
 const statusTone = {
   scheduled: "warning",
@@ -385,15 +386,11 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     if (message) return message
     const phase = effectivePhase
     const formatDate = (value?: string | null) =>
-      value
-        ? new Date(value).toLocaleString("pt-BR", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : ""
+      formatDateTimeInAppTz(
+        value ?? null,
+        { year: "numeric" },
+        ""
+      )
     if (phase === "before") {
       return `Rodada abre em ${formatDate(
         playersData.challengeWindow.roundStart

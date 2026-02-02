@@ -5,6 +5,7 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 import { hasAdminAccess } from "@/lib/domain/permissions"
 import { ensureBaselineSnapshot, monthStartFrom } from "@/lib/domain/ranking"
+import { parseAppDateTime } from "@/lib/timezone"
 
 const resultSchema = z.object({
   winner: z.enum(["challenger", "challenged"]).optional(),
@@ -24,13 +25,6 @@ const updateSchema = z.object({
   scheduled_for: z.string().optional(),
   result: resultSchema.optional(),
 })
-
-const parseDate = (value?: string) => {
-  if (!value) return null
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
-}
 
 export async function PATCH(
   request: Request,
@@ -85,7 +79,7 @@ export async function PATCH(
   const userId = Number(session.userId)
 
   if (parsed.data.scheduled_for !== undefined) {
-    const scheduledFor = parseDate(parsed.data.scheduled_for)
+    const scheduledFor = parseAppDateTime(parsed.data.scheduled_for)
     if (!scheduledFor) {
       return NextResponse.json(
         { ok: false, message: "Data do desafio invalida." },
@@ -114,7 +108,7 @@ export async function PATCH(
       challenge.played_at ??
       challenge.scheduled_for
 
-    const playedAt = parseDate(payloadResult.played_at) ?? scheduledFallback
+    const playedAt = parseAppDateTime(payloadResult.played_at) ?? scheduledFallback
     if (!playedAt) {
       return NextResponse.json(
         { ok: false, message: "Data do resultado invalida." },
