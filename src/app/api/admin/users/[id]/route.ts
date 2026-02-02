@@ -146,7 +146,8 @@ export async function PATCH(
         { status: 403 }
       )
     }
-    if (existing.role !== "collaborator") {
+    const nextRole = parsed.data.role ?? existing.role
+    if (nextRole !== "collaborator") {
       return NextResponse.json(
         { ok: false, message: "Usuario nao e colaborador." },
         { status: 422 }
