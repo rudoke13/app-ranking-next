@@ -53,7 +53,7 @@ export async function GET() {
     rounds.find((round) => round.ranking_id === null) ??
     null
 
-  const [activePlayers, bluePoints, challengeMonthCount, pendingMonthCount] =
+  const [activePlayers, bluePoints, challengeMonthCount, pendingMonthCount, myPendingMonthCount] =
     membership
       ? await Promise.all([
           db.ranking_memberships.count({
@@ -88,10 +88,21 @@ export async function GET() {
               },
             },
           }),
+          db.challenges.count({
+            where: {
+              ranking_id: membership.ranking_id,
+              status: { in: ["scheduled", "accepted"] },
+              scheduled_for: {
+                gte: monthStart,
+                lt: nextMonth,
+              },
+              OR: [{ challenger_id: userId }, { challenged_id: userId }],
+            },
+          }),
         ])
-      : [0, 0, 0, 0]
+      : [0, 0, 0, 0, 0]
 
-  const suspendedPlayers = membership
+  const suspendedMembers = membership
     ? await db.ranking_memberships.findMany({
         where: {
           ranking_id: membership.ranking_id,
@@ -99,6 +110,8 @@ export async function GET() {
         },
         select: {
           user_id: true,
+          license_position: true,
+          position: true,
           users: {
             select: {
               first_name: true,
@@ -108,9 +121,16 @@ export async function GET() {
             },
           },
         },
-        orderBy: { position: "asc" },
+        orderBy: [{ license_position: "asc" }, { position: "asc" }],
       })
     : []
+
+  const licensePlayers = suspendedMembers.filter(
+    (membership) => membership.license_position !== null
+  )
+  const inactivePlayers = suspendedMembers.filter(
+    (membership) => membership.license_position === null
+  )
 
   const receivedChallenges = await db.challenges.findMany({
     where: {
@@ -212,9 +232,19 @@ export async function GET() {
         bluePoints,
         challengeMonthCount,
         pendingMonthCount,
+        myPendingCount: myPendingMonthCount,
         myPosition: membership?.position ?? null,
       },
-      suspendedPlayers: suspendedPlayers.map((membership) => ({
+      licensePlayers: licensePlayers.map((membership) => ({
+        id: membership.user_id,
+        name: formatName(
+          membership.users.first_name,
+          membership.users.last_name,
+          membership.users.nickname
+        ),
+        avatarUrl: membership.users.avatarUrl ?? null,
+      })),
+      inactivePlayers: inactivePlayers.map((membership) => ({
         id: membership.user_id,
         name: formatName(
           membership.users.first_name,

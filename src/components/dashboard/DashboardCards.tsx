@@ -73,9 +73,15 @@ type DashboardData = {
     bluePoints: number
     challengeMonthCount: number
     pendingMonthCount: number
+    myPendingCount: number
     myPosition: number | null
   }
-  suspendedPlayers: {
+  licensePlayers: {
+    id: number
+    name: string
+    avatarUrl: string | null
+  }[]
+  inactivePlayers: {
     id: number
     name: string
     avatarUrl: string | null
@@ -211,8 +217,8 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
             <span className="text-sm font-semibold">Bem-vindo de volta!</span>
           </div>
           <p className="text-sm text-muted-foreground">
-            {data.stats.pendingMonthCount > 0
-              ? `Voce tem ${data.stats.pendingMonthCount} desafios pendentes nesta rodada.`
+            {data.stats.myPendingCount > 0
+              ? `Voce tem ${data.stats.myPendingCount} desafios pendentes nesta rodada.`
               : "Sem desafios pendentes nesta rodada."}
           </p>
         </CardContent>
@@ -249,7 +255,11 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
             <div className="mt-3 flex flex-wrap gap-2">
               <StatPill
                 tone="warning"
-                label={`${data.stats.pendingMonthCount} pendentes`}
+                label={`${data.stats.pendingMonthCount} pendentes no ranking`}
+              />
+              <StatPill
+                tone="neutral"
+                label={`${data.stats.myPendingCount} seus pendentes`}
               />
             </div>
           </div>
@@ -267,12 +277,12 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
 
       <SectionTitle
         title="Jogadores em licenca"
-        subtitle="Ativos nesta rodada"
+        subtitle="Voltam em breve para o ranking"
       />
       <Card>
         <CardContent className="space-y-3">
-          {data.suspendedPlayers.length ? (
-            data.suspendedPlayers.map((player) => (
+          {data.licensePlayers.length ? (
+            data.licensePlayers.map((player) => (
               <div
                 key={player.id}
                 className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
@@ -292,6 +302,38 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
           ) : (
             <p className="text-sm text-muted-foreground">
               Nenhum jogador em licenca nesta rodada.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <SectionTitle
+        title="Jogadores inativos"
+        subtitle="Fora do ranking nesta rodada"
+      />
+      <Card>
+        <CardContent className="space-y-3">
+          {data.inactivePlayers.length ? (
+            data.inactivePlayers.map((player) => (
+              <div
+                key={player.id}
+                className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={player.name} src={player.avatarUrl} size={36} />
+                  <div>
+                    <p className="font-semibold text-foreground">{player.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Inativo nesta rodada
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="secondary">Inativo</Badge>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Nenhum jogador inativo nesta rodada.
             </p>
           )}
         </CardContent>
