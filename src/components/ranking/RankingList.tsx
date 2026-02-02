@@ -20,7 +20,11 @@ import {
 } from "@/components/ui/select"
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
-import { formatDateTimeInAppTz } from "@/lib/timezone-client"
+import {
+  formatDateTimeInAppTz,
+  nowInAppTimeZone,
+  toDateTimeInputInAppTz,
+} from "@/lib/timezone-client"
 
 const statusTone = {
   scheduled: "warning",
@@ -545,8 +549,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setActionLoading(playerId)
     setActionError(null)
 
-    const monthValue = playersData.month?.value
-    const scheduledFor = monthValue ? `${monthValue}-01T12:00` : undefined
+    const scheduledFor = toDateTimeInputInAppTz(nowInAppTimeZone())
 
     const response = await apiPost<{ id: number }>("/api/challenges", {
       ranking_id: playersData.ranking.id,
