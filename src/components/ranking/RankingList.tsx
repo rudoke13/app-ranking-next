@@ -76,6 +76,8 @@ type PlayerItem = {
 
 type PlayersResponse = {
   viewerId: number
+  canManage?: boolean
+  canManageAll?: boolean
   ranking: RankingItem
   month: { value: string; label: string }
   currentMonth?: string
@@ -156,6 +158,8 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const canManage = Boolean(isAdmin && playersData?.canManage)
+  const canManageAll = Boolean(canManage && playersData?.canManageAll)
 
   const resetSelectionState = () => {
     setEditing(false)
@@ -497,7 +501,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   }
 
   const openEditModal = (player: PlayerItem) => {
-    if (!isAdmin) return
+    if (!canManage) return
     setEditingPlayer(player)
     setEditForm({
       isBluePoint: Boolean(player.isBluePoint),
@@ -570,7 +574,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   }
 
   const handleEditToggle = () => {
-    if (!playersData || !isAdmin) return
+    if (!playersData || !canManage) return
     if (!isOpenMonthSelected) {
       setReorderError("A ordenacao manual so pode ser feita no mes atual.")
       return
@@ -676,7 +680,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return
     }
 
-    if (action === "rollover" && rolloverAll) {
+    const includeAll = canManageAll && rolloverAll
+
+    if (action === "rollover" && includeAll) {
       const confirmed = window.confirm(
         "Isso vai fechar e abrir rodadas de TODAS as categorias. Deseja continuar?"
       )
@@ -692,7 +698,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     }
     if (action === "rollover") {
       payload.targetMonth = nextRoundMonth
-      payload.includeAll = rolloverAll
+      payload.includeAll = includeAll
     }
 
     const response = await apiPost<{ message: string }>(
@@ -847,7 +853,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
               </div>
             ) : null}
 
-            {isAdmin ? (
+            {canManage ? (
               <div className="rounded-lg border bg-muted/40 p-4 text-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -897,7 +903,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                 </div>
             ) : null}
 
-            {isAdmin ? (
+            {canManage ? (
               <div className="rounded-lg border bg-muted/40 p-4 text-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -908,13 +914,15 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       Programe datas e mantenha o ranking atualizado.
                     </p>
                   </div>
-                  <Button asChild size="sm" variant="outline">
-                    <Link
-                      href={`/admin/config?rankingId=${playersData.ranking.id}`}
-                    >
-                      Programar datas
-                    </Link>
-                  </Button>
+                  {canManageAll ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link
+                        href={`/admin/config?rankingId=${playersData.ranking.id}`}
+                      >
+                        Programar datas
+                      </Link>
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(220px,_2fr)_auto] sm:items-end">
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -966,14 +974,18 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={rolloverAll}
-                        onChange={(event) => setRolloverAll(event.target.checked)}
-                      />
-                      Fechar todas as categorias (usar com cuidado)
-                    </label>
+                    {canManageAll ? (
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={rolloverAll}
+                          onChange={(event) =>
+                            setRolloverAll(event.target.checked)
+                          }
+                        />
+                        Fechar todas as categorias (usar com cuidado)
+                      </label>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
@@ -1136,7 +1148,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                     const blueHighlight = player.isBluePoint
                       ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
                       : ""
-                    const showAdminEdit = isAdmin && !editing
+                    const showAdminEdit = canManage && !editing
 
                     return (
                       <Card

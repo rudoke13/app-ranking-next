@@ -16,7 +16,9 @@ export type AppHeaderProps = {
 
 const roleLabel: Record<Role, string> = {
   admin: "Admin",
+  collaborator: "Colaborador",
   player: "Jogador",
+  member: "Jogador",
 }
 
 export default function AppHeader({
@@ -55,7 +57,7 @@ export default function AppHeader({
             <span>
               Olá, <span className="font-semibold text-foreground">{name}</span>
             </span>
-            {role === "admin" ? (
+            {role === "admin" || role === "collaborator" ? (
               <Badge
                 variant="outline"
                 className="border-primary/30 bg-primary/10 text-primary"

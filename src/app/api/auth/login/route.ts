@@ -56,7 +56,11 @@ export async function POST(request: Request) {
   }
 
   const role: Role =
-    user.role === "admin" || user.role === "collaborator" ? "admin" : "player"
+    user.role === "admin" || user.role === "collaborator"
+      ? user.role
+      : user.role === "member"
+      ? "member"
+      : "player"
   const displayName = user.nickname?.trim()
     ? user.nickname
     : `${user.first_name} ${user.last_name}`.trim()

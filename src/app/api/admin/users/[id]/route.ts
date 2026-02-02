@@ -5,7 +5,8 @@ import { Prisma } from "@prisma/client"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 
 type MembershipUpdate = {
   ranking_id?: number
@@ -38,6 +39,7 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   role: z.enum(["admin", "player", "collaborator", "member"]).optional(),
   avatarUrl: z.string().max(255).optional().nullable(),
+  collaborator_ranking_ids: z.array(z.number().int().positive()).optional(),
   membership: membershipSchema.optional(),
 })
 
@@ -53,7 +55,7 @@ export async function PATCH(
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -78,7 +80,17 @@ export async function PATCH(
     )
   }
 
-  const existing = await db.users.findUnique({ where: { id: userId } })
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  const isCollaborator = allowedRankingIds !== null
+
+  const existing = await db.users.findUnique({
+    where: { id: userId },
+    include: {
+      ranking_memberships: {
+        select: { id: true, ranking_id: true },
+      },
+    },
+  })
   if (!existing) {
     return NextResponse.json(
       { ok: false, message: "Usuario nao encontrado." },
@@ -86,7 +98,72 @@ export async function PATCH(
     )
   }
 
+  if (isCollaborator) {
+    if (!allowedRankingIds.length) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador sem categorias liberadas." },
+        { status: 403 }
+      )
+    }
+    if (existing.role === "admin" || existing.role === "collaborator") {
+      return NextResponse.json(
+        { ok: false, message: "Nao e permitido editar este usuario." },
+        { status: 403 }
+      )
+    }
+    const hasAllowedMembership = existing.ranking_memberships.some((member) =>
+      allowedRankingIds.includes(member.ranking_id)
+    )
+    if (!hasAllowedMembership && !parsed.data.membership) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para editar este jogador." },
+        { status: 403 }
+      )
+    }
+    if (parsed.data.role) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador nao pode alterar permissao." },
+        { status: 403 }
+      )
+    }
+  }
+
   const updates: Record<string, unknown> = {}
+  const collaboratorRankingIds = parsed.data.collaborator_ranking_ids
+  const uniqueCollaboratorRankings = collaboratorRankingIds
+    ? Array.from(new Set(collaboratorRankingIds))
+    : null
+  const shouldClearCollaboratorAccess =
+    session.role === "admin" &&
+    parsed.data.role &&
+    parsed.data.role !== "collaborator" &&
+    existing.role === "collaborator"
+
+  if (uniqueCollaboratorRankings) {
+    if (session.role !== "admin") {
+      return NextResponse.json(
+        { ok: false, message: "Apenas admin pode ajustar colaborador." },
+        { status: 403 }
+      )
+    }
+    if (existing.role !== "collaborator") {
+      return NextResponse.json(
+        { ok: false, message: "Usuario nao e colaborador." },
+        { status: 422 }
+      )
+    }
+    if (uniqueCollaboratorRankings.length) {
+      const rankingCount = await db.rankings.count({
+        where: { id: { in: uniqueCollaboratorRankings } },
+      })
+      if (rankingCount !== uniqueCollaboratorRankings.length) {
+        return NextResponse.json(
+          { ok: false, message: "Categoria do ranking nao encontrada." },
+          { status: 404 }
+        )
+      }
+    }
+  }
 
   if (parsed.data.first_name) updates.first_name = parsed.data.first_name.trim()
   if (parsed.data.last_name) updates.last_name = parsed.data.last_name.trim()
@@ -153,6 +230,43 @@ export async function PATCH(
     }
     if (membershipInput.position !== undefined) {
       membershipUpdates.position = membershipInput.position
+    }
+  }
+
+  if (isCollaborator && membershipInput) {
+    if (membershipInput.id) {
+      const targetMembership = existing.ranking_memberships.find(
+        (member) => member.id === membershipInput.id
+      )
+      if (!targetMembership) {
+        return NextResponse.json(
+          { ok: false, message: "Vinculo de ranking nao encontrado." },
+          { status: 404 }
+        )
+      }
+      if (!allowedRankingIds.includes(targetMembership.ranking_id)) {
+        return NextResponse.json(
+          { ok: false, message: "Sem permissao para este ranking." },
+          { status: 403 }
+        )
+      }
+    }
+
+    if (
+      membershipInput.ranking_id &&
+      !allowedRankingIds.includes(membershipInput.ranking_id)
+    ) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
+    }
+
+    if (moveToRankingId && !allowedRankingIds.includes(moveToRankingId)) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
     }
   }
 
@@ -317,9 +431,36 @@ export async function PATCH(
       }
 
       if (activeInput !== undefined) {
+        const where: Prisma.ranking_membershipsWhereInput = {
+          user_id: userId,
+        }
+        if (isCollaborator) {
+          where.ranking_id = { in: allowedRankingIds }
+        }
         await tx.ranking_memberships.updateMany({
-          where: { user_id: userId },
+          where,
           data: { is_suspended: !activeInput },
+        })
+      }
+
+      if (uniqueCollaboratorRankings) {
+        await tx.collaborator_rankings.deleteMany({
+          where: { user_id: userId },
+        })
+        if (uniqueCollaboratorRankings.length) {
+          await tx.collaborator_rankings.createMany({
+            data: uniqueCollaboratorRankings.map((rankingId) => ({
+              ranking_id: rankingId,
+              user_id: userId,
+            })),
+            skipDuplicates: true,
+          })
+        }
+      }
+
+      if (shouldClearCollaboratorAccess && !uniqueCollaboratorRankings) {
+        await tx.collaborator_rankings.deleteMany({
+          where: { user_id: userId },
         })
       }
 

@@ -35,8 +35,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url))
   }
 
-  if (pathname.startsWith("/admin") && session.role !== "admin") {
-    return NextResponse.redirect(new URL("/dashboard", request.url))
+  if (pathname.startsWith("/admin")) {
+    if (session.role === "admin") {
+      return NextResponse.next()
+    }
+
+    const isCollaborator = session.role === "collaborator"
+    const collaboratorAllowed =
+      pathname.startsWith("/admin/usuarios") ||
+      pathname.startsWith("/admin/usuarios/")
+
+    if (!isCollaborator || !collaboratorAllowed) {
+      return NextResponse.redirect(new URL("/dashboard", request.url))
+    }
   }
 
   return NextResponse.next()

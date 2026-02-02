@@ -4,7 +4,8 @@ import { z } from "zod"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { monthKeyFromValue } from "@/lib/date"
 import { db } from "@/lib/db"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { canManageRanking } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 import {
   MANUAL_ORDER_LOG_LINE,
   MANUAL_ORDER_LOG_MESSAGE,
@@ -29,7 +30,7 @@ export async function POST(
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -42,6 +43,14 @@ export async function POST(
     return NextResponse.json(
       { ok: false, message: "Ranking invalido." },
       { status: 400 }
+    )
+  }
+
+  const canManage = await canManageRanking(session, rankingId)
+  if (!canManage) {
+    return NextResponse.json(
+      { ok: false, message: "Sem permissao para este ranking." },
+      { status: 403 }
     )
   }
 

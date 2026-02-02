@@ -4,7 +4,8 @@ import { z } from "zod"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { monthKeyFromValue, monthStartLocalFromValue } from "@/lib/date"
 import { db } from "@/lib/db"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 
 const createSchema = z.object({
   title: z.string().min(3).max(150),
@@ -24,15 +25,28 @@ export async function GET() {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
     )
   }
 
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  if (allowedRankingIds !== null && allowedRankingIds.length === 0) {
+    return NextResponse.json({ ok: true, data: [] })
+  }
+
   const rounds = await db.rounds.findMany({
     include: { rankings: true },
+    where:
+      allowedRankingIds === null
+        ? undefined
+        : {
+            ranking_id: {
+              in: allowedRankingIds,
+            },
+          },
     orderBy: [{ reference_month: "desc" }, { id: "desc" }],
   })
 
@@ -62,7 +76,7 @@ export async function POST(request: Request) {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -76,6 +90,23 @@ export async function POST(request: Request) {
       { ok: false, message: "Dados invalidos.", issues: parsed.error.flatten() },
       { status: 400 }
     )
+  }
+
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  if (allowedRankingIds !== null) {
+    const requestedRankingId = parsed.data.ranking_id
+    if (!requestedRankingId) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador precisa selecionar um ranking." },
+        { status: 403 }
+      )
+    }
+    if (!allowedRankingIds.includes(requestedRankingId)) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
+    }
   }
 
   const monthKey = monthKeyFromValue(parsed.data.reference_month)

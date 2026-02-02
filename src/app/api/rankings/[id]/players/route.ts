@@ -13,6 +13,7 @@ import {
 } from "@/lib/domain/challenges"
 import { getAccessThreshold, maxPositionsUp } from "@/lib/domain/ranking"
 import { db } from "@/lib/db"
+import { canManageRanking } from "@/lib/domain/collaborator-access"
 
 const monthSchema = z
   .string()
@@ -456,10 +457,15 @@ export async function GET(
     : null
   const windowState = toWindowState(challengeWindow, now)
 
+  const canManage = await canManageRanking(session, rankingId)
+  const canManageAll = session.role === "admin"
+
   return NextResponse.json({
     ok: true,
     data: {
       viewerId: Number(session.userId),
+      canManage,
+      canManageAll,
       ranking: {
         id: ranking.id,
         name: ranking.name,

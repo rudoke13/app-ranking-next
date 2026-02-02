@@ -31,7 +31,12 @@ export default async function PerfilPage() {
   const phone = user?.phone ?? "(11) 99999-0000"
   const birthDateLabel = formatDateDisplay(user?.birth_date ?? null)
   const birthDateValue = formatDateInput(user?.birth_date ?? null)
-  const roleLabel = session?.role === "admin" ? "Admin" : "Atleta"
+  const roleLabel =
+    session?.role === "admin"
+      ? "Admin"
+      : session?.role === "collaborator"
+      ? "Colaborador"
+      : "Atleta"
 
   return (
     <div className="space-y-8">

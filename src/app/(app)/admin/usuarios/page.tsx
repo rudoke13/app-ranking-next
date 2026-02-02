@@ -21,10 +21,18 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
 
 const roleLabel = (role: string) =>
-  role === "admin" || role === "collaborator" ? "Admin" : "Jogador"
+  role === "admin"
+    ? "Admin"
+    : role === "collaborator"
+    ? "Colaborador"
+    : "Jogador"
 
 const roleValue = (role: string) =>
-  role === "admin" || role === "collaborator" ? "admin" : "player"
+  role === "admin"
+    ? "admin"
+    : role === "collaborator"
+    ? "collaborator"
+    : "player"
 
 const toDateInputValue = (value?: string | null) => {
   if (!value) return ""
@@ -62,11 +70,22 @@ type AdminUser = {
   role: string
   avatarUrl: string | null
   memberships: Membership[]
+  collaboratorRankings: { id: number; name: string }[]
+}
+
+type UsersPayload = {
+  users: AdminUser[]
+  viewer: {
+    role: string
+    allowedRankingIds: number[] | null
+  }
 }
 
 export default function AdminUsuariosPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [rankings, setRankings] = useState<RankingItem[]>([])
+  const [viewerRole, setViewerRole] = useState<string>("player")
+  const [allowedRankingIds, setAllowedRankingIds] = useState<number[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -84,6 +103,7 @@ export default function AdminUsuariosPage() {
     password: string
     passwordConfirm: string
     rankingId: string
+    collaboratorRankingIds: string[]
   } | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [createDraft, setCreateDraft] = useState({
@@ -95,6 +115,7 @@ export default function AdminUsuariosPage() {
     phone: "",
     role: "player",
     rankingId: "",
+    collaboratorRankingIds: [] as string[],
     password: "",
     passwordConfirm: "",
   })
@@ -120,7 +141,7 @@ export default function AdminUsuariosPage() {
     setLoading(true)
     setLoadError(null)
     const [usersResponse, rankingsResponse] = await Promise.all([
-      apiGet<AdminUser[]>("/api/admin/users"),
+      apiGet<UsersPayload>("/api/admin/users"),
       apiGet<RankingItem[]>("/api/rankings"),
     ])
     if (!usersResponse.ok) {
@@ -129,10 +150,24 @@ export default function AdminUsuariosPage() {
       return
     }
 
-    setUsers(usersResponse.data)
+    setUsers(usersResponse.data.users)
+    setViewerRole(usersResponse.data.viewer.role)
+    setAllowedRankingIds(usersResponse.data.viewer.allowedRankingIds)
     setMembershipRankingMap({})
     if (rankingsResponse.ok) {
-      setRankings(rankingsResponse.data)
+      const nextRankings = rankingsResponse.data
+      if (
+        usersResponse.data.viewer.role === "collaborator" &&
+        usersResponse.data.viewer.allowedRankingIds
+      ) {
+        setRankings(
+          nextRankings.filter((ranking) =>
+            usersResponse.data.viewer.allowedRankingIds?.includes(ranking.id)
+          )
+        )
+      } else {
+        setRankings(nextRankings)
+      }
     }
     setLoading(false)
   }
@@ -177,7 +212,12 @@ export default function AdminUsuariosPage() {
       status: statusValue,
       password: "",
       passwordConfirm: "",
-      rankingId: "",
+      rankingId: user.memberships[0]?.rankingId
+        ? String(user.memberships[0].rankingId)
+        : "",
+      collaboratorRankingIds: user.collaboratorRankings.map((entry) =>
+        String(entry.id)
+      ),
     })
     setDraftStatusInitial(statusValue)
   }
@@ -194,6 +234,7 @@ export default function AdminUsuariosPage() {
       phone: "",
       role: "player",
       rankingId: "",
+      collaboratorRankingIds: [],
       password: "",
       passwordConfirm: "",
     })
@@ -211,11 +252,17 @@ export default function AdminUsuariosPage() {
     const lastName = createDraft.lastName.trim()
     const email = createDraft.email.trim()
     const rankingId = createDraft.rankingId
+    const collaboratorRankingIds = createDraft.collaboratorRankingIds
     const password = createDraft.password.trim()
     const passwordConfirm = createDraft.passwordConfirm.trim()
 
-    if (createDraft.role === "player" && !rankingId) {
+    if ((createDraft.role === "player" || createDraft.role === "member") && !rankingId) {
       setCreateError("Selecione a categoria do ranking.")
+      return
+    }
+
+    if (createDraft.role === "collaborator" && collaboratorRankingIds.length === 0) {
+      setCreateError("Selecione ao menos uma categoria para o colaborador.")
       return
     }
 
@@ -243,6 +290,10 @@ export default function AdminUsuariosPage() {
       phone: createDraft.phone.trim() || null,
       role: createDraft.role,
       ranking_id: rankingId ? Number(rankingId) : undefined,
+      collaborator_ranking_ids:
+        createDraft.role === "collaborator"
+          ? collaboratorRankingIds.map((id) => Number(id))
+          : undefined,
       password: password || undefined,
     })
 
@@ -288,9 +339,20 @@ export default function AdminUsuariosPage() {
     if (
       editingHasMembership === false &&
       draft.status === "active" &&
+      (draft.role === "player" || draft.role === "member") &&
       !draft.rankingId
     ) {
       setActionError("Selecione a categoria do ranking para ativar o jogador.")
+      setSaving(false)
+      return
+    }
+
+    if (
+      viewerRole === "admin" &&
+      draft.role === "collaborator" &&
+      draft.collaboratorRankingIds.length === 0
+    ) {
+      setActionError("Selecione ao menos uma categoria para o colaborador.")
       setSaving(false)
       return
     }
@@ -302,7 +364,15 @@ export default function AdminUsuariosPage() {
       email: draft.email,
       birth_date: draft.birthDate.trim() || null,
       phone: draft.phone.trim() || null,
-      role: draft.role,
+    }
+
+    if (viewerRole === "admin") {
+      payload.role = draft.role
+      if (draft.role === "collaborator") {
+        payload.collaborator_ranking_ids = draft.collaboratorRankingIds.map(
+          (id) => Number(id)
+        )
+      }
     }
 
     if (password) {
@@ -525,44 +595,88 @@ export default function AdminUsuariosPage() {
                   onValueChange={(value) =>
                     setCreateDraft((current) => ({ ...current, role: value }))
                   }
+                  disabled={viewerRole !== "admin"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="player">Jogador</SelectItem>
+                    {viewerRole === "admin" ? (
+                      <>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="collaborator">Colaborador</SelectItem>
+                        <SelectItem value="player">Jogador</SelectItem>
+                      </>
+                    ) : (
+                      <SelectItem value="player">Jogador</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Categoria do ranking</Label>
-                <Select
-                  value={createDraft.rankingId}
-                  onValueChange={(value) =>
-                    setCreateDraft((current) => ({
-                      ...current,
-                      rankingId: value,
-                    }))
-                  }
-                  disabled={rankings.length === 0}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        rankings.length === 0 ? "Carregando..." : "Selecione"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rankings.map((ranking) => (
-                      <SelectItem key={ranking.id} value={String(ranking.id)}>
-                        {ranking.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {createDraft.role === "player" || createDraft.role === "member" ? (
+                <div className="space-y-2">
+                  <Label>Categoria do ranking</Label>
+                  <Select
+                    value={createDraft.rankingId}
+                    onValueChange={(value) =>
+                      setCreateDraft((current) => ({
+                        ...current,
+                        rankingId: value,
+                      }))
+                    }
+                    disabled={rankings.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          rankings.length === 0 ? "Carregando..." : "Selecione"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rankings.map((ranking) => (
+                        <SelectItem key={ranking.id} value={String(ranking.id)}>
+                          {ranking.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              {viewerRole === "admin" && createDraft.role === "collaborator" ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Categorias permitidas</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {rankings.map((ranking) => {
+                      const value = String(ranking.id)
+                      const selected =
+                        createDraft.collaboratorRankingIds.includes(value)
+                      return (
+                        <label
+                          key={ranking.id}
+                          className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() =>
+                              setCreateDraft((current) => ({
+                                ...current,
+                                collaboratorRankingIds: selected
+                                  ? current.collaboratorRankingIds.filter(
+                                      (item) => item !== value
+                                    )
+                                  : [...current.collaboratorRankingIds, value],
+                              }))
+                            }
+                          />
+                          <span>{ranking.name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label>Senha inicial</Label>
                 <div className="relative">
@@ -712,7 +826,7 @@ export default function AdminUsuariosPage() {
                         <Badge
                           variant="outline"
                           className={
-                            roleValue(user.role) === "admin"
+                            user.role === "admin" || user.role === "collaborator"
                               ? "border-primary/30 bg-primary/10 text-primary"
                               : "border-border bg-muted text-muted-foreground"
                           }
@@ -838,13 +952,15 @@ export default function AdminUsuariosPage() {
                             <SelectItem value="inactive">Inativo</SelectItem>
                           </SelectContent>
                         </Select>
-                        {editingHasMembership === false ? (
+                        {editingHasMembership === false &&
+                        (draft.role === "player" || draft.role === "member") ? (
                           <p className="text-xs text-muted-foreground">
                             Para ativar, escolha uma categoria de ranking abaixo.
                           </p>
                         ) : null}
                       </div>
-                      {editingHasMembership === false ? (
+                      {editingHasMembership === false &&
+                      (draft.role === "player" || draft.role === "member") ? (
                         <div className="space-y-2">
                           <Label>Categoria do ranking</Label>
                           <Select
@@ -887,16 +1003,69 @@ export default function AdminUsuariosPage() {
                               current ? { ...current, role: value } : current
                             )
                           }
+                          disabled={viewerRole !== "admin"}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="player">Jogador</SelectItem>
+                            {viewerRole === "admin" ? (
+                              <>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="collaborator">
+                                  Colaborador
+                                </SelectItem>
+                                <SelectItem value="player">Jogador</SelectItem>
+                              </>
+                            ) : (
+                              <SelectItem value={draft.role}>
+                                {roleLabel(draft.role)}
+                              </SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
+                      {viewerRole === "admin" && draft.role === "collaborator" ? (
+                        <div className="space-y-2 md:col-span-2">
+                          <Label>Categorias permitidas</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {rankings.map((ranking) => {
+                              const value = String(ranking.id)
+                              const selected =
+                                draft.collaboratorRankingIds.includes(value)
+                              return (
+                                <label
+                                  key={ranking.id}
+                                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() =>
+                                      setDraft((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              collaboratorRankingIds: selected
+                                                ? current.collaboratorRankingIds.filter(
+                                                    (item) => item !== value
+                                                  )
+                                                : [
+                                                    ...current.collaboratorRankingIds,
+                                                    value,
+                                                  ],
+                                            }
+                                          : current
+                                      )
+                                    }
+                                  />
+                                  <span>{ranking.name}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="space-y-2">
                         <Label>Nova senha</Label>
                         <div className="relative">

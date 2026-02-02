@@ -1,4 +1,4 @@
-export type Role = "admin" | "player"
+export type Role = "admin" | "collaborator" | "player" | "member"
 
 export type SessionPayload = {
   userId: string

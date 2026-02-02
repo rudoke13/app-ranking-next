@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { canManageRanking } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 import { monthKeyFromValue } from "@/lib/date"
 import { db } from "@/lib/db"
 import { closeRound, restoreSnapshot } from "@/lib/domain/round-actions"
@@ -75,7 +76,7 @@ export async function POST(
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -88,6 +89,14 @@ export async function POST(
     return NextResponse.json(
       { ok: false, message: "Ranking invalido." },
       { status: 400 }
+    )
+  }
+
+  const canManage = await canManageRanking(session, rankingId)
+  if (!canManage) {
+    return NextResponse.json(
+      { ok: false, message: "Sem permissao para este ranking." },
+      { status: 403 }
     )
   }
 

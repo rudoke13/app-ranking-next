@@ -1,11 +1,11 @@
 import SectionTitle from "@/components/app/SectionTitle"
 import RankingList from "@/components/ranking/RankingList"
 import { getSessionFromCookies } from "@/lib/auth/session"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 
 export default async function RankingPage() {
   const session = await getSessionFromCookies()
-  const isAdmin = hasAdminAccess(session)
+  const isAdmin = hasStaffAccess(session)
 
   return (
     <div className="space-y-8">

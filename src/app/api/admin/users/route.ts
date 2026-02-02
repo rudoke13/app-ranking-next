@@ -5,7 +5,8 @@ import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 
 const DEFAULT_PASSWORD = "player123"
 
@@ -31,6 +32,7 @@ const createSchema = z.object({
   birth_date: z.string().optional().nullable(),
   role: z.enum(["admin", "player", "collaborator", "member"]).optional(),
   ranking_id: z.number().int().positive().optional(),
+  collaborator_ranking_ids: z.array(z.number().int().positive()).optional(),
   password: z.string().min(4).max(100).optional(),
 })
 
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -67,9 +69,39 @@ export async function POST(request: Request) {
   const birthDateInput = parsed.data.birth_date?.trim() ?? ""
   const role = parsed.data.role ?? "player"
   const rankingId = parsed.data.ranking_id
+  const collaboratorRankingIds = parsed.data.collaborator_ranking_ids ?? []
   const passwordInput = parsed.data.password?.trim()
   const passwordValue = passwordInput ? passwordInput : DEFAULT_PASSWORD
   const mustResetPassword = !passwordInput
+
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  const isCollaborator = allowedRankingIds !== null
+  if (isCollaborator) {
+    if (!allowedRankingIds.length) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador sem categorias liberadas." },
+        { status: 403 }
+      )
+    }
+    if (role !== "player" && role !== "member") {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador nao pode criar admins." },
+        { status: 403 }
+      )
+    }
+    if (!rankingId) {
+      return NextResponse.json(
+        { ok: false, message: "Informe a categoria do ranking." },
+        { status: 422 }
+      )
+    }
+    if (!allowedRankingIds.includes(rankingId)) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
+    }
+  }
 
   if (!firstName || !lastName) {
     return NextResponse.json(
@@ -109,6 +141,21 @@ export async function POST(request: Request) {
     if (!ranking) {
       return NextResponse.json(
         { ok: false, message: "Ranking nao encontrado." },
+        { status: 404 }
+      )
+    }
+  }
+
+  const uniqueCollaboratorRankings = Array.from(
+    new Set(collaboratorRankingIds)
+  )
+  if (role === "collaborator" && uniqueCollaboratorRankings.length) {
+    const rankingCount = await db.rankings.count({
+      where: { id: { in: uniqueCollaboratorRankings } },
+    })
+    if (rankingCount !== uniqueCollaboratorRankings.length) {
+      return NextResponse.json(
+        { ok: false, message: "Categoria do ranking nao encontrada." },
         { status: 404 }
       )
     }
@@ -180,6 +227,16 @@ export async function POST(request: Request) {
         }
       }
 
+      if (role === "collaborator" && uniqueCollaboratorRankings.length) {
+        await tx.collaborator_rankings.createMany({
+          data: uniqueCollaboratorRankings.map((rankingId) => ({
+            ranking_id: rankingId,
+            user_id: user.id,
+          })),
+          skipDuplicates: true,
+        })
+      }
+
       return { user, membership }
     })
 
@@ -248,15 +305,35 @@ export async function GET() {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
     )
   }
 
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  if (allowedRankingIds !== null && allowedRankingIds.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      data: {
+        users: [],
+        viewer: { role: session.role, allowedRankingIds },
+      },
+    })
+  }
+
   const users = await db.users.findMany({
     orderBy: { id: "asc" },
+    where:
+      allowedRankingIds === null
+        ? undefined
+        : {
+            role: { in: ["player", "member"] },
+            ranking_memberships: {
+              some: { ranking_id: { in: allowedRankingIds } },
+            },
+          },
     select: {
       id: true,
       first_name: true,
@@ -280,32 +357,49 @@ export async function GET() {
         },
         orderBy: { ranking_id: "asc" },
       },
+      collaborator_rankings: {
+        select: {
+          ranking_id: true,
+          rankings: { select: { name: true } },
+        },
+        orderBy: { ranking_id: "asc" },
+      },
     },
   })
 
   return NextResponse.json({
     ok: true,
-    data: users.map((user) => ({
-      id: user.id,
-      name: formatName(user.first_name, user.last_name, user.nickname),
-      firstName: user.first_name,
-      lastName: user.last_name,
-      nickname: user.nickname,
-      email: user.email,
-      phone: user.phone ?? null,
-      birthDate: user.birth_date ? user.birth_date.toISOString() : null,
-      role: user.role,
-      avatarUrl: user.avatarUrl ?? null,
-      memberships: user.ranking_memberships.map((membership) => ({
-        id: membership.id,
-        rankingId: membership.ranking_id,
-        rankingName: membership.rankings.name,
-        position: membership.position ?? null,
-        licensePosition: membership.license_position ?? null,
-        isBluePoint: Boolean(membership.is_blue_point),
-        isAccessChallenge: Boolean(membership.is_access_challenge),
-        isSuspended: Boolean(membership.is_suspended),
+    data: {
+      users: users.map((user) => ({
+        id: user.id,
+        name: formatName(user.first_name, user.last_name, user.nickname),
+        firstName: user.first_name,
+        lastName: user.last_name,
+        nickname: user.nickname,
+        email: user.email,
+        phone: user.phone ?? null,
+        birthDate: user.birth_date ? user.birth_date.toISOString() : null,
+        role: user.role,
+        avatarUrl: user.avatarUrl ?? null,
+        memberships: user.ranking_memberships.map((membership) => ({
+          id: membership.id,
+          rankingId: membership.ranking_id,
+          rankingName: membership.rankings.name,
+          position: membership.position ?? null,
+          licensePosition: membership.license_position ?? null,
+          isBluePoint: Boolean(membership.is_blue_point),
+          isAccessChallenge: Boolean(membership.is_access_challenge),
+          isSuspended: Boolean(membership.is_suspended),
+        })),
+        collaboratorRankings: user.collaborator_rankings.map((entry) => ({
+          id: entry.ranking_id,
+          name: entry.rankings.name,
+        })),
       })),
-    })),
+      viewer: {
+        role: session.role,
+        allowedRankingIds,
+      },
+    },
   })
 }

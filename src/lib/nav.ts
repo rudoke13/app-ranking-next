@@ -41,7 +41,7 @@ const adminNavItem: NavItem = {
 }
 
 export function getNavItems(role: Role) {
-  if (role === "admin") {
+  if (role === "admin" || role === "collaborator") {
     return [...baseNavItems, adminNavItem]
   }
 
