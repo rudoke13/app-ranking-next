@@ -307,37 +307,47 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
         </CardContent>
       </Card>
 
-      <SectionTitle
-        title="Jogadores inativos"
-        subtitle="Fora do ranking nesta rodada"
-      />
-      <Card>
-        <CardContent className="space-y-3">
-          {data.inactivePlayers.length ? (
-            data.inactivePlayers.map((player) => (
-              <div
-                key={player.id}
-                className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  <UserAvatar name={player.name} src={player.avatarUrl} size={36} />
-                  <div>
-                    <p className="font-semibold text-foreground">{player.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Inativo nesta rodada
-                    </p>
+      {isAdmin ? (
+        <>
+          <SectionTitle
+            title="Jogadores inativos"
+            subtitle="Fora do ranking nesta rodada"
+          />
+          <Card>
+            <CardContent className="space-y-3">
+              {data.inactivePlayers.length ? (
+                data.inactivePlayers.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <UserAvatar
+                        name={player.name}
+                        src={player.avatarUrl}
+                        size={36}
+                      />
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {player.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Inativo nesta rodada
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">Inativo</Badge>
                   </div>
-                </div>
-                <Badge variant="secondary">Inativo</Badge>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Nenhum jogador inativo nesta rodada.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum jogador inativo nesta rodada.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
       <SectionTitle
         title="Historico de desafios recebidos"
