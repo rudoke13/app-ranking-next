@@ -8,6 +8,7 @@ import { rolloverRound } from "@/lib/domain/round-actions"
 const bodySchema = z.object({
   referenceMonth: z.string().regex(/^\d{4}-\d{2}$/),
   targetMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  includeAll: z.boolean().optional(),
 })
 
 export async function POST(
@@ -62,7 +63,10 @@ export async function POST(
       rankingId,
       parsed.data.referenceMonth,
       Number(session.userId) || null,
-      targetMonth ? { targetMonth } : undefined
+      {
+        targetMonth,
+        includeAll: parsed.data.includeAll === true,
+      }
     )
     return NextResponse.json({
       ok: true,

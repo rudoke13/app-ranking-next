@@ -398,6 +398,7 @@ type CloseRoundOptions = {
   ignoreViolations?: boolean
   persistMemberships?: boolean
   closeStatus?: boolean
+  closeGlobal?: boolean
 }
 
 export async function closeRound(
@@ -483,6 +484,7 @@ export async function closeRound(
   const forceManualClose = manualOverrideFlag && !ignoreViolations
   const persistMemberships = options?.persistMemberships !== false
   const closeStatus = options?.closeStatus !== false
+  const closeGlobal = options?.closeGlobal === true
 
   if (forceManualClose) {
     const finalPositions = buildPositionsFromMembers(
@@ -522,10 +524,12 @@ export async function closeRound(
 
       if (closeStatus) {
         await tx.rounds.updateMany({
-          where: {
-            reference_month: monthKey,
-            OR: [{ ranking_id: rankingId }, { ranking_id: null }],
-          },
+          where: closeGlobal
+            ? {
+                reference_month: monthKey,
+                OR: [{ ranking_id: rankingId }, { ranking_id: null }],
+              }
+            : { reference_month: monthKey, ranking_id: rankingId },
           data: { status: "closed", closed_at: new Date() },
         })
       }
@@ -692,10 +696,12 @@ export async function closeRound(
 
     if (closeStatus) {
       await tx.rounds.updateMany({
-        where: {
-          reference_month: monthKey,
-          OR: [{ ranking_id: rankingId }, { ranking_id: null }],
-        },
+        where: closeGlobal
+          ? {
+              reference_month: monthKey,
+              OR: [{ ranking_id: rankingId }, { ranking_id: null }],
+            }
+          : { reference_month: monthKey, ranking_id: rankingId },
         data: { status: "closed", closed_at: new Date() },
       })
     }
@@ -768,6 +774,7 @@ export async function restoreSnapshot(
 type RolloverOptions = {
   skipRecalculate?: boolean
   targetMonth?: Date
+  includeAll?: boolean
 }
 
 export async function rolloverRound(
@@ -796,14 +803,19 @@ export async function rolloverRound(
   })
 
   const slugMap = new Map(rankings.map((row) => [row.slug, row.id]))
+  const baseIds = [rankingId]
   const targetIds = Array.from(
-    new Set([
-      rankingId,
-      slugMap.get("ranking-masculino"),
-      slugMap.get("ranking-feminino"),
-      slugMap.get("ranking-master-45"),
-    ].filter((value) => typeof value === "number") as number[])
-  )
+    new Set(
+      options?.includeAll
+        ? [
+            ...baseIds,
+            slugMap.get("ranking-masculino"),
+            slugMap.get("ranking-feminino"),
+            slugMap.get("ranking-master-45"),
+          ].filter((value) => typeof value === "number")
+        : baseIds
+    )
+  ) as number[]
 
   if (!options?.skipRecalculate) {
     const violations: Array<{ rankingId: number; issues: string[] }> = []
@@ -857,10 +869,14 @@ export async function rolloverRound(
       }))
 
     if (sourceRound?.id) {
-      await db.rounds.update({
-        where: { id: sourceRound.id },
-        data: { status: "closed", closed_at: new Date() },
-      })
+      const shouldCloseGlobal = options?.includeAll === true
+      const shouldClose = sourceRound.ranking_id !== null || shouldCloseGlobal
+      if (shouldClose) {
+        await db.rounds.update({
+          where: { id: sourceRound.id },
+          data: { status: "closed", closed_at: new Date() },
+        })
+      }
     }
 
     const nextBlueStart =

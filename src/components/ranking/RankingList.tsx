@@ -145,6 +145,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   const [adminActionLoading, setAdminActionLoading] = useState<
     "recalculate" | "rollover" | "restore" | null
   >(null)
+  const [rolloverAll, setRolloverAll] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [releaseFlashAt, setReleaseFlashAt] = useState<number | null>(null)
   const [editingPlayer, setEditingPlayer] = useState<PlayerItem | null>(null)
@@ -166,6 +167,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setAdminActionLoading(null)
     setAdminMonth("")
     setNextRoundMonth("")
+    setRolloverAll(false)
     setEditingPlayer(null)
     setEditSaving(false)
     setEditError(null)
@@ -674,15 +676,23 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return
     }
 
+    if (action === "rollover" && rolloverAll) {
+      const confirmed = window.confirm(
+        "Isso vai fechar e abrir rodadas de TODAS as categorias. Deseja continuar?"
+      )
+      if (!confirmed) return
+    }
+
     setAdminActionLoading(action)
     setAdminActionError(null)
     setAdminActionSuccess(null)
 
-    const payload: { referenceMonth: string; targetMonth?: string } = {
+    const payload: { referenceMonth: string; targetMonth?: string; includeAll?: boolean } = {
       referenceMonth: month,
     }
     if (action === "rollover") {
       payload.targetMonth = nextRoundMonth
+      payload.includeAll = rolloverAll
     }
 
     const response = await apiPost<{ message: string }>(
@@ -955,7 +965,16 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                       </Select>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={rolloverAll}
+                        onChange={(event) => setRolloverAll(event.target.checked)}
+                      />
+                      Fechar todas as categorias (usar com cuidado)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
                       onClick={() => runAdminAction("recalculate")}
@@ -985,6 +1004,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                         ? "Restaurando..."
                         : "Restaurar"}
                     </Button>
+                    </div>
                   </div>
                 </div>
                 {adminActionError ? (
