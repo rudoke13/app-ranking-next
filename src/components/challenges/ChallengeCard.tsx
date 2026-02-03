@@ -836,7 +836,8 @@ export default function ChallengeCard({
             {challenge.canResult ? (
               <Button
                 size="sm"
-                variant="secondary"
+                variant="default"
+                className="shadow-sm"
                 onClick={openResult}
               >
                 Resultado

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import {
   CalendarDays,
@@ -25,8 +25,21 @@ import {
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { apiGet } from "@/lib/http"
-import { formatDateInAppTz, formatMonthYearInAppTz } from "@/lib/timezone-client"
+import { apiGet, apiPatch, apiPost } from "@/lib/http"
+import {
+  formatDateTimeInAppTz,
+  formatMonthYearInAppTz,
+  toDateTimeInputInAppTz,
+} from "@/lib/timezone-client"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 const statusTone = {
   scheduled: "warning",
@@ -49,6 +62,25 @@ const resultTone = {
   loss: "danger",
   pending: "neutral",
 } as const
+
+const DEFAULT_APP_TIMEZONE = "America/Sao_Paulo"
+const APP_TIMEZONE =
+  process.env.NEXT_PUBLIC_APP_TIMEZONE?.trim() || DEFAULT_APP_TIMEZONE
+
+const monthKeyInAppTz = (value: string | null) => {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: APP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+    }).format(date)
+  } catch {
+    return null
+  }
+}
 
 type DashboardData = {
   viewerId: number
@@ -120,7 +152,7 @@ type DashboardData = {
 }
 
 const formatDate = (value: string | null) => {
-  return formatDateInAppTz(value)
+  return formatDateTimeInAppTz(value, { second: "2-digit" })
 }
 
 const formatScore = (score: DashboardData["recentResults"][number]["score"]) => {
@@ -141,31 +173,33 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [resultOpenId, setResultOpenId] = useState<number | null>(null)
+  const [resultType, setResultType] = useState("score")
+  const [resultPlayedAt, setResultPlayedAt] = useState("")
+  const [resultChallengerGames, setResultChallengerGames] = useState("")
+  const [resultChallengedGames, setResultChallengedGames] = useState("")
+  const [resultChallengerTiebreak, setResultChallengerTiebreak] = useState("")
+  const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
+  const [resultError, setResultError] = useState<string | null>(null)
+  const [resultLoading, setResultLoading] = useState<string | null>(null)
+
+  const loadDashboard = useCallback(async () => {
+    setLoading(true)
+    const response = await apiGet<DashboardData>("/api/dashboard")
+
+    if (!response.ok) {
+      setError(response.message)
+      setLoading(false)
+      return
+    }
+
+    setData(response.data)
+    setLoading(false)
+  }, [])
 
   useEffect(() => {
-    let mounted = true
-
-    const loadDashboard = async () => {
-      setLoading(true)
-      const response = await apiGet<DashboardData>("/api/dashboard")
-      if (!mounted) return
-
-      if (!response.ok) {
-        setError(response.message)
-        setLoading(false)
-        return
-      }
-
-      setData(response.data)
-      setLoading(false)
-    }
-
     loadDashboard()
-
-    return () => {
-      mounted = false
-    }
-  }, [])
+  }, [loadDashboard])
 
   if (loading) {
     return (
@@ -189,6 +223,158 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
   const monthLabel = data.round
     ? formatMonthYearInAppTz(data.round.referenceMonth, "Rodada")
     : "Rodada"
+
+  const currentRoundKey = data.round
+    ? monthKeyInAppTz(data.round.referenceMonth)
+    : null
+
+  const openResultFor = (challenge: DashboardData["myChallenges"][number]) => {
+    setResultOpenId(challenge.id)
+    setResultType("score")
+    setResultPlayedAt(toDateTimeInputInAppTz(challenge.scheduledFor))
+    setResultChallengerGames("")
+    setResultChallengedGames("")
+    setResultChallengerTiebreak("")
+    setResultChallengedTiebreak("")
+    setResultError(null)
+  }
+
+  const handleSaveSchedule = async (challengeId: number) => {
+    if (!resultPlayedAt) {
+      setResultError("Informe a data do jogo.")
+      return
+    }
+    setResultLoading("schedule")
+    setResultError(null)
+
+    const response = await apiPatch(`/api/challenges/${challengeId}`, {
+      scheduled_for: resultPlayedAt,
+    })
+
+    if (!response.ok) {
+      setResultError(response.message)
+      setResultLoading(null)
+      return
+    }
+
+    setResultLoading(null)
+    setResultOpenId(null)
+    loadDashboard()
+  }
+
+  const handleSaveResult = async (challengeId: number) => {
+    const playedAt = resultPlayedAt || undefined
+
+    if (resultType === "score") {
+      if (!resultChallengerGames.trim() || !resultChallengedGames.trim()) {
+        setResultError("Informe o placar do resultado.")
+        return
+      }
+
+      const challengerGames = Number(resultChallengerGames)
+      const challengedGames = Number(resultChallengedGames)
+
+      if (
+        !Number.isInteger(challengerGames) ||
+        !Number.isInteger(challengedGames) ||
+        challengerGames < 0 ||
+        challengedGames < 0
+      ) {
+        setResultError("Informe o placar do resultado.")
+        return
+      }
+
+      if (challengerGames === challengedGames) {
+        setResultError("O placar nao pode ser empate.")
+        return
+      }
+
+      const challengerTiebreak = resultChallengerTiebreak.trim()
+        ? Number(resultChallengerTiebreak)
+        : null
+      const challengedTiebreak = resultChallengedTiebreak.trim()
+        ? Number(resultChallengedTiebreak)
+        : null
+
+      if (
+        (challengerTiebreak !== null && challengedTiebreak === null) ||
+        (challengerTiebreak === null && challengedTiebreak !== null)
+      ) {
+        setResultError("Informe o tiebreak para ambos os jogadores.")
+        return
+      }
+
+      if (
+        challengerTiebreak !== null &&
+        challengedTiebreak !== null &&
+        (!Number.isInteger(challengerTiebreak) ||
+          !Number.isInteger(challengedTiebreak) ||
+          challengerTiebreak < 0 ||
+          challengedTiebreak < 0)
+      ) {
+        setResultError("Informe o tiebreak corretamente.")
+        return
+      }
+
+      const winner =
+        challengerGames > challengedGames ? "challenger" : "challenged"
+
+      setResultLoading("result")
+      const response = await apiPost(`/api/challenges/${challengeId}/result`, {
+        winner,
+        played_at: playedAt,
+        challenger_games: challengerGames,
+        challenged_games: challengedGames,
+        challenger_tiebreak: challengerTiebreak,
+        challenged_tiebreak: challengedTiebreak,
+      })
+
+      if (!response.ok) {
+        setResultError(response.message)
+        setResultLoading(null)
+        return
+      }
+
+      setResultLoading(null)
+      setResultOpenId(null)
+      loadDashboard()
+      return
+    }
+
+    setResultLoading("result")
+    const payload =
+      resultType === "wo_challenger"
+        ? {
+            winner: "challenger",
+            played_at: playedAt,
+            challenged_walkover: true,
+          }
+        : resultType === "wo_challenged"
+        ? {
+            winner: "challenged",
+            played_at: playedAt,
+            challenger_walkover: true,
+          }
+        : {
+            double_walkover: true,
+            played_at: playedAt,
+          }
+
+    const response = await apiPost(
+      `/api/challenges/${challengeId}/result`,
+      payload
+    )
+
+    if (!response.ok) {
+      setResultError(response.message)
+      setResultLoading(null)
+      return
+    }
+
+    setResultLoading(null)
+    setResultOpenId(null)
+    loadDashboard()
+  }
 
   return (
     <div className="space-y-8">
@@ -392,33 +578,191 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
             const opponent = challenge.isChallenger
               ? challenge.challenged
               : challenge.challenger
+            const isPending =
+              challenge.status === "scheduled" || challenge.status === "accepted"
+            const challengeKey = monthKeyInAppTz(challenge.scheduledFor)
+            const canUpdate =
+              isPending && currentRoundKey && challengeKey === currentRoundKey
+            const isOpen = resultOpenId === challenge.id
 
             return (
               <Card key={challenge.id} className="shadow-none">
-                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-3">
-                    <UserAvatar
-                      name={opponent.name}
-                      src={opponent.avatarUrl}
-                      size={40}
-                    />
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">
-                        {opponent.name}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="secondary">{challenge.ranking}</Badge>
-                        <span>{formatDate(challenge.scheduledFor)}</span>
-                        <StatPill
-                          tone={statusTone[challenge.status]}
-                          label={statusLabel[challenge.status]}
-                        />
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar
+                        name={opponent.name}
+                        src={opponent.avatarUrl}
+                        size={40}
+                      />
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          {opponent.name}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <Badge variant="secondary">{challenge.ranking}</Badge>
+                          <span>{formatDate(challenge.scheduledFor)}</span>
+                          <StatPill
+                            tone={statusTone[challenge.status]}
+                            label={statusLabel[challenge.status]}
+                          />
+                        </div>
                       </div>
                     </div>
+                    {canUpdate ? (
+                      <Button
+                        variant="default"
+                        className="w-full shadow-sm sm:w-auto"
+                        onClick={() => openResultFor(challenge)}
+                      >
+                        Atualizar placar
+                      </Button>
+                    ) : null}
                   </div>
-                  <Button asChild variant="outline" className="w-full sm:w-auto">
-                    <Link href="/desafios">Atualizar</Link>
-                  </Button>
+
+                  {isOpen ? (
+                    <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+                      {resultError ? (
+                        <p className="text-xs text-destructive">{resultError}</p>
+                      ) : null}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor={`dashboard-played-${challenge.id}`}>
+                            Data do jogo
+                          </Label>
+                          <Input
+                            id={`dashboard-played-${challenge.id}`}
+                            type="datetime-local"
+                            step="1"
+                            value={resultPlayedAt}
+                            onChange={(event) =>
+                              setResultPlayedAt(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`dashboard-type-${challenge.id}`}>
+                            Tipo de resultado
+                          </Label>
+                          <Select value={resultType} onValueChange={setResultType}>
+                            <SelectTrigger id={`dashboard-type-${challenge.id}`}>
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="score">Placar</SelectItem>
+                              <SelectItem value="wo_challenger">
+                                W.O. para o desafiante
+                              </SelectItem>
+                              <SelectItem value="wo_challenged">
+                                W.O. para o desafiado
+                              </SelectItem>
+                              <SelectItem value="double_wo">W.O. duplo</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      {resultType === "score" ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label
+                              htmlFor={`dashboard-score-challenger-${challenge.id}`}
+                            >
+                              Games do desafiante
+                            </Label>
+                            <Input
+                              id={`dashboard-score-challenger-${challenge.id}`}
+                              type="number"
+                              min={0}
+                              value={resultChallengerGames}
+                              onChange={(event) =>
+                                setResultChallengerGames(event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label
+                              htmlFor={`dashboard-score-challenged-${challenge.id}`}
+                            >
+                              Games do desafiado
+                            </Label>
+                            <Input
+                              id={`dashboard-score-challenged-${challenge.id}`}
+                              type="number"
+                              min={0}
+                              value={resultChallengedGames}
+                              onChange={(event) =>
+                                setResultChallengedGames(event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label
+                              htmlFor={`dashboard-tiebreak-challenger-${challenge.id}`}
+                            >
+                              Tiebreak do desafiante (opcional)
+                            </Label>
+                            <Input
+                              id={`dashboard-tiebreak-challenger-${challenge.id}`}
+                              type="number"
+                              min={0}
+                              value={resultChallengerTiebreak}
+                              onChange={(event) =>
+                                setResultChallengerTiebreak(event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label
+                              htmlFor={`dashboard-tiebreak-challenged-${challenge.id}`}
+                            >
+                              Tiebreak do desafiado (opcional)
+                            </Label>
+                            <Input
+                              id={`dashboard-tiebreak-challenged-${challenge.id}`}
+                              type="number"
+                              min={0}
+                              value={resultChallengedTiebreak}
+                              onChange={(event) =>
+                                setResultChallengedTiebreak(event.target.value)
+                              }
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveResult(challenge.id)}
+                          disabled={resultLoading === "result"}
+                        >
+                          {resultLoading === "result"
+                            ? "Salvando..."
+                            : "Salvar resultado"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSaveSchedule(challenge.id)}
+                          disabled={resultLoading === "schedule"}
+                        >
+                          {resultLoading === "schedule"
+                            ? "Salvando..."
+                            : "Salvar horario"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setResultOpenId(null)}
+                          disabled={
+                            resultLoading === "result" ||
+                            resultLoading === "schedule"
+                          }
+                        >
+                          Fechar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             )
