@@ -61,3 +61,13 @@ export const parseAppDateTime = (value?: string) => {
   const fallback = new Date(value)
   return Number.isNaN(fallback.getTime()) ? null : fallback
 }
+
+export const normalizeAppDateTimeInput = (value?: string) => {
+  if (!value) return value
+  if (!value.includes("T")) return value
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+    const seconds = String(new Date().getSeconds()).padStart(2, "0")
+    return `${value}:${seconds}`
+  }
+  return value
+}
