@@ -582,7 +582,8 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
               challenge.status === "scheduled" || challenge.status === "accepted"
             const challengeKey = monthKeyInAppTz(challenge.scheduledFor)
             const canUpdate =
-              isPending && currentRoundKey && challengeKey === currentRoundKey
+              isPending &&
+              (!currentRoundKey || challengeKey === currentRoundKey)
             const isOpen = resultOpenId === challenge.id
 
             return (
