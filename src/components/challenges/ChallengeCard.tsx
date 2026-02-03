@@ -84,6 +84,12 @@ export default function ChallengeCard({
   const [editResultType, setEditResultType] = useState("none")
   const [editChallengerGames, setEditChallengerGames] = useState("")
   const [editChallengedGames, setEditChallengedGames] = useState("")
+  const [editChallengerTiebreak, setEditChallengerTiebreak] = useState("")
+  const [editChallengedTiebreak, setEditChallengedTiebreak] = useState("")
+  const [resultChallengerGames, setResultChallengerGames] = useState("")
+  const [resultChallengedGames, setResultChallengedGames] = useState("")
+  const [resultChallengerTiebreak, setResultChallengerTiebreak] = useState("")
+  const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
   const [now, setNow] = useState(() => Date.now())
 
   const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor)
@@ -209,8 +215,15 @@ export default function ChallengeCard({
   }
 
   const handleCancel = () => runAction("cancel")
-  const handleResult = (winner: "challenger" | "challenged") =>
-    runAction("result", { winner })
+
+  const openResult = () => {
+    setResultChallengerGames("")
+    setResultChallengedGames("")
+    setResultChallengerTiebreak("")
+    setResultChallengedTiebreak("")
+    setActionMode("result")
+    setError(null)
+  }
 
   const handleDelete = async () => {
     setLoading("delete")
@@ -239,6 +252,16 @@ export default function ChallengeCard({
     setEditChallengedGames(
       challenge.challengedGames !== null
         ? String(challenge.challengedGames)
+        : ""
+    )
+    setEditChallengerTiebreak(
+      challenge.challengerTiebreak !== null
+        ? String(challenge.challengerTiebreak)
+        : ""
+    )
+    setEditChallengedTiebreak(
+      challenge.challengedTiebreak !== null
+        ? String(challenge.challengedTiebreak)
         : ""
     )
     setActionMode("edit")
@@ -279,11 +302,40 @@ export default function ChallengeCard({
           setError("O placar nao pode ser empate.")
           return
         }
+        const challengerTiebreak = editChallengerTiebreak.trim()
+          ? Number(editChallengerTiebreak)
+          : null
+        const challengedTiebreak = editChallengedTiebreak.trim()
+          ? Number(editChallengedTiebreak)
+          : null
+
+        if (
+          (challengerTiebreak !== null && challengedTiebreak === null) ||
+          (challengerTiebreak === null && challengedTiebreak !== null)
+        ) {
+          setError("Informe o tiebreak para ambos os jogadores.")
+          return
+        }
+
+        if (
+          challengerTiebreak !== null &&
+          challengedTiebreak !== null &&
+          (!Number.isInteger(challengerTiebreak) ||
+            !Number.isInteger(challengedTiebreak) ||
+            challengerTiebreak < 0 ||
+            challengedTiebreak < 0)
+        ) {
+          setError("Informe o tiebreak corretamente.")
+          return
+        }
+
         resultPayload = {
           winner: challengerGames > challengedGames ? "challenger" : "challenged",
           played_at: editPlayedAt,
           challenger_games: challengerGames,
           challenged_games: challengedGames,
+          challenger_tiebreak: challengerTiebreak,
+          challenged_tiebreak: challengedTiebreak,
         }
       } else if (resultType === "wo_challenger") {
         resultPayload = {
@@ -321,6 +373,69 @@ export default function ChallengeCard({
     setLoading(null)
     setActionMode(null)
     onActionComplete?.()
+  }
+
+  const handleResultSubmit = async () => {
+    if (!resultChallengerGames.trim() || !resultChallengedGames.trim()) {
+      setError("Informe o placar do resultado.")
+      return
+    }
+
+    const challengerGames = Number(resultChallengerGames)
+    const challengedGames = Number(resultChallengedGames)
+
+    if (
+      !Number.isInteger(challengerGames) ||
+      !Number.isInteger(challengedGames) ||
+      challengerGames < 0 ||
+      challengedGames < 0
+    ) {
+      setError("Informe o placar do resultado.")
+      return
+    }
+
+    if (challengerGames === challengedGames) {
+      setError("O placar nao pode ser empate.")
+      return
+    }
+
+    const challengerTiebreak = resultChallengerTiebreak.trim()
+      ? Number(resultChallengerTiebreak)
+      : null
+    const challengedTiebreak = resultChallengedTiebreak.trim()
+      ? Number(resultChallengedTiebreak)
+      : null
+
+    if (
+      (challengerTiebreak !== null && challengedTiebreak === null) ||
+      (challengerTiebreak === null && challengedTiebreak !== null)
+    ) {
+      setError("Informe o tiebreak para ambos os jogadores.")
+      return
+    }
+
+    if (
+      challengerTiebreak !== null &&
+      challengedTiebreak !== null &&
+      (!Number.isInteger(challengerTiebreak) ||
+        !Number.isInteger(challengedTiebreak) ||
+        challengerTiebreak < 0 ||
+        challengedTiebreak < 0)
+    ) {
+      setError("Informe o tiebreak corretamente.")
+      return
+    }
+
+    const winner =
+      challengerGames > challengedGames ? "challenger" : "challenged"
+
+    await runAction("result", {
+      winner,
+      challenger_games: challengerGames,
+      challenged_games: challengedGames,
+      challenger_tiebreak: challengerTiebreak,
+      challenged_tiebreak: challengedTiebreak,
+    })
   }
 
   return (
@@ -393,25 +508,75 @@ export default function ChallengeCard({
         ) : null}
 
         {actionMode === "result" ? (
-          <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+          <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">
-              Selecione o vencedor para registrar o resultado.
+              Informe o placar e, se houver, o tiebreak.
             </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`result-score-challenger-${challenge.id}`}>
+                  Games do desafiante
+                </Label>
+                <Input
+                  id={`result-score-challenger-${challenge.id}`}
+                  type="number"
+                  min={0}
+                  value={resultChallengerGames}
+                  onChange={(event) =>
+                    setResultChallengerGames(event.target.value)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`result-score-challenged-${challenge.id}`}>
+                  Games do desafiado
+                </Label>
+                <Input
+                  id={`result-score-challenged-${challenge.id}`}
+                  type="number"
+                  min={0}
+                  value={resultChallengedGames}
+                  onChange={(event) =>
+                    setResultChallengedGames(event.target.value)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`result-tiebreak-challenger-${challenge.id}`}>
+                  Tiebreak do desafiante (opcional)
+                </Label>
+                <Input
+                  id={`result-tiebreak-challenger-${challenge.id}`}
+                  type="number"
+                  min={0}
+                  value={resultChallengerTiebreak}
+                  onChange={(event) =>
+                    setResultChallengerTiebreak(event.target.value)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`result-tiebreak-challenged-${challenge.id}`}>
+                  Tiebreak do desafiado (opcional)
+                </Label>
+                <Input
+                  id={`result-tiebreak-challenged-${challenge.id}`}
+                  type="number"
+                  min={0}
+                  value={resultChallengedTiebreak}
+                  onChange={(event) =>
+                    setResultChallengedTiebreak(event.target.value)
+                  }
+                />
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                onClick={() => handleResult("challenger")}
+                onClick={handleResultSubmit}
                 disabled={loading === "result"}
               >
-                Vitoria {challenge.challenger.name}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleResult("challenged")}
-                disabled={loading === "result"}
-              >
-                Vitoria {challenge.challenged.name}
+                {loading === "result" ? "Salvando..." : "Salvar resultado"}
               </Button>
               <Button
                 size="sm"
@@ -499,6 +664,34 @@ export default function ChallengeCard({
                       }
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`edit-tiebreak-challenger-${challenge.id}`}>
+                      Tiebreak do desafiante (opcional)
+                    </Label>
+                    <Input
+                      id={`edit-tiebreak-challenger-${challenge.id}`}
+                      type="number"
+                      min={0}
+                      value={editChallengerTiebreak}
+                      onChange={(event) =>
+                        setEditChallengerTiebreak(event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`edit-tiebreak-challenged-${challenge.id}`}>
+                      Tiebreak do desafiado (opcional)
+                    </Label>
+                    <Input
+                      id={`edit-tiebreak-challenged-${challenge.id}`}
+                      type="number"
+                      min={0}
+                      value={editChallengedTiebreak}
+                      onChange={(event) =>
+                        setEditChallengedTiebreak(event.target.value)
+                      }
+                    />
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -540,7 +733,7 @@ export default function ChallengeCard({
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => setActionMode("result")}
+                onClick={openResult}
               >
                 Resultado
               </Button>

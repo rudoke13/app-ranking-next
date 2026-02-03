@@ -125,6 +125,8 @@ export default function DesafiosClient({
   const [createResultType, setCreateResultType] = useState("none")
   const [createChallengerGames, setCreateChallengerGames] = useState("")
   const [createChallengedGames, setCreateChallengedGames] = useState("")
+  const [createChallengerTiebreak, setCreateChallengerTiebreak] = useState("")
+  const [createChallengedTiebreak, setCreateChallengedTiebreak] = useState("")
   const [createPlayers, setCreatePlayers] = useState<RankingPlayer[]>([])
   const [createLoading, setCreateLoading] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -291,6 +293,8 @@ export default function DesafiosClient({
     setCreateResultType("none")
     setCreateChallengerGames("")
     setCreateChallengedGames("")
+    setCreateChallengerTiebreak("")
+    setCreateChallengedTiebreak("")
     loadPlayers()
 
     return () => {
@@ -337,11 +341,40 @@ export default function DesafiosClient({
           return
         }
 
+        const challengerTiebreak = createChallengerTiebreak.trim()
+          ? Number(createChallengerTiebreak)
+          : null
+        const challengedTiebreak = createChallengedTiebreak.trim()
+          ? Number(createChallengedTiebreak)
+          : null
+
+        if (
+          (challengerTiebreak !== null && challengedTiebreak === null) ||
+          (challengerTiebreak === null && challengedTiebreak !== null)
+        ) {
+          setCreateError("Informe o tiebreak para ambos os jogadores.")
+          return
+        }
+
+        if (
+          challengerTiebreak !== null &&
+          challengedTiebreak !== null &&
+          (!Number.isInteger(challengerTiebreak) ||
+            !Number.isInteger(challengedTiebreak) ||
+            challengerTiebreak < 0 ||
+            challengedTiebreak < 0)
+        ) {
+          setCreateError("Informe o tiebreak corretamente.")
+          return
+        }
+
         resultPayload = {
           winner: challengerGames > challengedGames ? "challenger" : "challenged",
           played_at: createScheduledFor || undefined,
           challenger_games: challengerGames,
           challenged_games: challengedGames,
+          challenger_tiebreak: challengerTiebreak,
+          challenged_tiebreak: challengedTiebreak,
         }
       } else if (resultType === "wo_challenger") {
         resultPayload = {
@@ -596,6 +629,34 @@ export default function DesafiosClient({
                         value={createChallengedGames}
                         onChange={(event) =>
                           setCreateChallengedGames(event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="create-tiebreak-challenger">
+                        Tiebreak do desafiante (opcional)
+                      </Label>
+                      <Input
+                        id="create-tiebreak-challenger"
+                        type="number"
+                        min={0}
+                        value={createChallengerTiebreak}
+                        onChange={(event) =>
+                          setCreateChallengerTiebreak(event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="create-tiebreak-challenged">
+                        Tiebreak do desafiado (opcional)
+                      </Label>
+                      <Input
+                        id="create-tiebreak-challenged"
+                        type="number"
+                        min={0}
+                        value={createChallengedTiebreak}
+                        onChange={(event) =>
+                          setCreateChallengedTiebreak(event.target.value)
                         }
                       />
                     </div>
