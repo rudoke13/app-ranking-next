@@ -86,15 +86,19 @@ export default function ChallengeCard({
   const [editChallengedGames, setEditChallengedGames] = useState("")
   const [editChallengerTiebreak, setEditChallengerTiebreak] = useState("")
   const [editChallengedTiebreak, setEditChallengedTiebreak] = useState("")
+  const [resultType, setResultType] = useState("score")
+  const [resultPlayedAt, setResultPlayedAt] = useState("")
   const [resultChallengerGames, setResultChallengerGames] = useState("")
   const [resultChallengedGames, setResultChallengedGames] = useState("")
   const [resultChallengerTiebreak, setResultChallengerTiebreak] = useState("")
   const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
   const [now, setNow] = useState(() => Date.now())
 
-  const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor)
+  const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor, {
+    second: "2-digit",
+  })
   const playedLabel = challenge.playedAt
-    ? formatDateTimeInAppTz(challenge.playedAt)
+    ? formatDateTimeInAppTz(challenge.playedAt, { second: "2-digit" })
     : null
   const cancelDeadline = useMemo(() => {
     if (!challenge.cancelWindowClosesAt) return null
@@ -221,6 +225,10 @@ export default function ChallengeCard({
     setResultChallengedGames("")
     setResultChallengerTiebreak("")
     setResultChallengedTiebreak("")
+    setResultType("score")
+    setResultPlayedAt(
+      toDateTimeInputInAppTz(challenge.playedAt ?? challenge.scheduledFor)
+    )
     setActionMode("result")
     setError(null)
   }
@@ -376,66 +384,118 @@ export default function ChallengeCard({
   }
 
   const handleResultSubmit = async () => {
-    if (!resultChallengerGames.trim() || !resultChallengedGames.trim()) {
-      setError("Informe o placar do resultado.")
+    const playedAt = resultPlayedAt || undefined
+
+    if (resultType === "score") {
+      if (!resultChallengerGames.trim() || !resultChallengedGames.trim()) {
+        setError("Informe o placar do resultado.")
+        return
+      }
+
+      const challengerGames = Number(resultChallengerGames)
+      const challengedGames = Number(resultChallengedGames)
+
+      if (
+        !Number.isInteger(challengerGames) ||
+        !Number.isInteger(challengedGames) ||
+        challengerGames < 0 ||
+        challengedGames < 0
+      ) {
+        setError("Informe o placar do resultado.")
+        return
+      }
+
+      if (challengerGames === challengedGames) {
+        setError("O placar nao pode ser empate.")
+        return
+      }
+
+      const challengerTiebreak = resultChallengerTiebreak.trim()
+        ? Number(resultChallengerTiebreak)
+        : null
+      const challengedTiebreak = resultChallengedTiebreak.trim()
+        ? Number(resultChallengedTiebreak)
+        : null
+
+      if (
+        (challengerTiebreak !== null && challengedTiebreak === null) ||
+        (challengerTiebreak === null && challengedTiebreak !== null)
+      ) {
+        setError("Informe o tiebreak para ambos os jogadores.")
+        return
+      }
+
+      if (
+        challengerTiebreak !== null &&
+        challengedTiebreak !== null &&
+        (!Number.isInteger(challengerTiebreak) ||
+          !Number.isInteger(challengedTiebreak) ||
+          challengerTiebreak < 0 ||
+          challengedTiebreak < 0)
+      ) {
+        setError("Informe o tiebreak corretamente.")
+        return
+      }
+
+      const winner =
+        challengerGames > challengedGames ? "challenger" : "challenged"
+
+      await runAction("result", {
+        winner,
+        played_at: playedAt,
+        challenger_games: challengerGames,
+        challenged_games: challengedGames,
+        challenger_tiebreak: challengerTiebreak,
+        challenged_tiebreak: challengedTiebreak,
+      })
       return
     }
 
-    const challengerGames = Number(resultChallengerGames)
-    const challengedGames = Number(resultChallengedGames)
-
-    if (
-      !Number.isInteger(challengerGames) ||
-      !Number.isInteger(challengedGames) ||
-      challengerGames < 0 ||
-      challengedGames < 0
-    ) {
-      setError("Informe o placar do resultado.")
+    if (resultType === "wo_challenger") {
+      await runAction("result", {
+        winner: "challenger",
+        played_at: playedAt,
+        challenged_walkover: true,
+      })
       return
     }
 
-    if (challengerGames === challengedGames) {
-      setError("O placar nao pode ser empate.")
+    if (resultType === "wo_challenged") {
+      await runAction("result", {
+        winner: "challenged",
+        played_at: playedAt,
+        challenger_walkover: true,
+      })
       return
     }
-
-    const challengerTiebreak = resultChallengerTiebreak.trim()
-      ? Number(resultChallengerTiebreak)
-      : null
-    const challengedTiebreak = resultChallengedTiebreak.trim()
-      ? Number(resultChallengedTiebreak)
-      : null
-
-    if (
-      (challengerTiebreak !== null && challengedTiebreak === null) ||
-      (challengerTiebreak === null && challengedTiebreak !== null)
-    ) {
-      setError("Informe o tiebreak para ambos os jogadores.")
-      return
-    }
-
-    if (
-      challengerTiebreak !== null &&
-      challengedTiebreak !== null &&
-      (!Number.isInteger(challengerTiebreak) ||
-        !Number.isInteger(challengedTiebreak) ||
-        challengerTiebreak < 0 ||
-        challengedTiebreak < 0)
-    ) {
-      setError("Informe o tiebreak corretamente.")
-      return
-    }
-
-    const winner =
-      challengerGames > challengedGames ? "challenger" : "challenged"
 
     await runAction("result", {
-      winner,
-      challenger_games: challengerGames,
-      challenged_games: challengedGames,
-      challenger_tiebreak: challengerTiebreak,
-      challenged_tiebreak: challengedTiebreak,
+      double_walkover: true,
+      played_at: playedAt,
     })
+  }
+
+  const handleSchedule = async () => {
+    if (!resultPlayedAt) {
+      setError("Informe a data do jogo.")
+      return
+    }
+
+    setLoading("schedule")
+    setError(null)
+    const response = await apiPatch(`/api/challenges/${challenge.id}`, {
+      scheduled_for: resultPlayedAt,
+    })
+
+    if (!response.ok) {
+      setError(response.message)
+      setLoading(null)
+      return
+    }
+
+    setLoading(null)
+    setActionMode(null)
+    onActionComplete?.()
   }
 
   return (
@@ -510,9 +570,44 @@ export default function ChallengeCard({
         {actionMode === "result" ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
             <p className="text-xs text-muted-foreground">
-              Informe o placar e, se houver, o tiebreak.
+              Informe o horario do jogo e o resultado.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor={`result-played-${challenge.id}`}>
+                  Data do jogo
+                </Label>
+                <Input
+                  id={`result-played-${challenge.id}`}
+                  type="datetime-local"
+                  step="1"
+                  value={resultPlayedAt}
+                  onChange={(event) => setResultPlayedAt(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`result-type-${challenge.id}`}>
+                  Tipo de resultado
+                </Label>
+                <Select value={resultType} onValueChange={setResultType}>
+                  <SelectTrigger id={`result-type-${challenge.id}`}>
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="score">Placar</SelectItem>
+                    <SelectItem value="wo_challenger">
+                      W.O. para o desafiante
+                    </SelectItem>
+                    <SelectItem value="wo_challenged">
+                      W.O. para o desafiado
+                    </SelectItem>
+                    <SelectItem value="double_wo">W.O. duplo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {resultType === "score" ? (
+              <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor={`result-score-challenger-${challenge.id}`}>
                   Games do desafiante
@@ -570,6 +665,7 @@ export default function ChallengeCard({
                 />
               </div>
             </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -580,9 +676,17 @@ export default function ChallengeCard({
               </Button>
               <Button
                 size="sm"
+                variant="outline"
+                onClick={handleSchedule}
+                disabled={loading === "schedule"}
+              >
+                {loading === "schedule" ? "Salvando..." : "Salvar horario"}
+              </Button>
+              <Button
+                size="sm"
                 variant="ghost"
                 onClick={() => setActionMode(null)}
-                disabled={loading === "result"}
+                disabled={loading === "result" || loading === "schedule"}
               >
                 Fechar
               </Button>

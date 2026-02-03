@@ -38,13 +38,6 @@ export async function PATCH(
     )
   }
 
-  if (!hasAdminAccess(session)) {
-    return NextResponse.json(
-      { ok: false, message: "Acesso restrito." },
-      { status: 403 }
-    )
-  }
-
   const { id } = await params
   const challengeId = Number(id)
   if (!Number.isFinite(challengeId)) {
@@ -74,9 +67,43 @@ export async function PATCH(
     )
   }
 
+  const isAdmin = hasAdminAccess(session)
+  const userId = Number(session.userId)
+  const isParticipant =
+    challenge.challenger_id === userId || challenge.challenged_id === userId
+
+  if (!isAdmin) {
+    if (!isParticipant) {
+      return NextResponse.json(
+        { ok: false, message: "Acesso restrito." },
+        { status: 403 }
+      )
+    }
+
+    if (parsed.data.result) {
+      return NextResponse.json(
+        { ok: false, message: "Apenas o admin pode editar o resultado aqui." },
+        { status: 403 }
+      )
+    }
+
+    if (parsed.data.scheduled_for === undefined) {
+      return NextResponse.json(
+        { ok: false, message: "Nenhuma alteracao enviada." },
+        { status: 400 }
+      )
+    }
+
+    if (!["scheduled", "accepted"].includes(challenge.status)) {
+      return NextResponse.json(
+        { ok: false, message: "O desafio nao pode ser reagendado." },
+        { status: 422 }
+      )
+    }
+  }
+
   const updates: Record<string, unknown> = {}
   const payloadResult = parsed.data.result
-  const userId = Number(session.userId)
 
   if (parsed.data.scheduled_for !== undefined) {
     const scheduledFor = parseAppDateTime(parsed.data.scheduled_for)
