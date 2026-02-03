@@ -63,23 +63,13 @@ const resultTone = {
   pending: "neutral",
 } as const
 
-const DEFAULT_APP_TIMEZONE = "America/Sao_Paulo"
-const APP_TIMEZONE =
-  process.env.NEXT_PUBLIC_APP_TIMEZONE?.trim() || DEFAULT_APP_TIMEZONE
-
-const monthKeyInAppTz = (value: string | null) => {
+const monthKeyFromValue = (value: string | null) => {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  try {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: APP_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-    }).format(date)
-  } catch {
-    return null
-  }
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0")
+  return `${year}-${month}`
 }
 
 type DashboardData = {
@@ -225,7 +215,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
     : "Rodada"
 
   const currentRoundKey = data.round
-    ? monthKeyInAppTz(data.round.referenceMonth)
+    ? monthKeyFromValue(data.round.referenceMonth)
     : null
 
   const openResultFor = (challenge: DashboardData["myChallenges"][number]) => {
@@ -580,7 +570,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
               : challenge.challenger
             const isPending =
               challenge.status === "scheduled" || challenge.status === "accepted"
-            const challengeKey = monthKeyInAppTz(challenge.scheduledFor)
+            const challengeKey = monthKeyFromValue(challenge.scheduledFor)
             const canUpdate =
               isPending &&
               (!currentRoundKey || challengeKey === currentRoundKey)
