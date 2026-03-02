@@ -17,6 +17,16 @@ const formatName = (first?: string | null, last?: string | null, nickname?: stri
   return full || "Jogador"
 }
 
+const toCount = (value: unknown) => {
+  if (typeof value === "number") return value
+  if (typeof value === "bigint") return Number(value)
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
 export async function GET() {
   const session = await getSessionFromCookies()
   if (!session) {
@@ -58,58 +68,56 @@ export async function GET() {
     rounds.find((round) => round.ranking_id === null) ??
     null
 
-  const [activePlayers, bluePoints, challengeMonthCount, pendingMonthCount, myPendingMonthCount] =
-    membership
-      ? await Promise.all([
-          db.ranking_memberships.count({
-            where: {
-              ranking_id: membership.ranking_id,
-              is_suspended: false,
-            },
-          }),
-          db.ranking_memberships.count({
-            where: {
-              ranking_id: membership.ranking_id,
-              is_blue_point: true,
-              is_suspended: false,
-            },
-          }),
-          db.challenges.count({
-            where: {
-              ranking_id: membership.ranking_id,
-              status: { not: "cancelled" },
-              scheduled_for: {
-                gte: monthStart,
-                lt: nextMonth,
-              },
-            },
-          }),
-          db.challenges.count({
-            where: {
-              ranking_id: membership.ranking_id,
-              status: { in: ["scheduled", "accepted"] },
-              scheduled_for: {
-                gte: monthStart,
-                lt: nextMonth,
-              },
-            },
-          }),
-          db.challenges.count({
-            where: {
-              ranking_id: membership.ranking_id,
-              status: { in: ["scheduled", "accepted"] },
-              scheduled_for: {
-                gte: monthStart,
-                lt: nextMonth,
-              },
-              OR: [{ challenger_id: userId }, { challenged_id: userId }],
-            },
-          }),
-        ])
-      : [0, 0, 0, 0, 0]
+  let activePlayers = 0
+  let bluePoints = 0
+  let challengeMonthCount = 0
+  let pendingMonthCount = 0
+  let myPendingMonthCount = 0
+  let suspendedMembers: Array<{
+    user_id: number
+    license_position: number | null
+    position: number | null
+    users: {
+      first_name: string
+      last_name: string
+      nickname: string | null
+      avatarUrl: string | null
+    }
+  }> = []
 
-  const suspendedMembers = membership
-    ? await db.ranking_memberships.findMany({
+  if (membership) {
+    type MembershipStatsRow = {
+      active_players: unknown
+      blue_points: unknown
+    }
+    type ChallengeStatsRow = {
+      challenge_month_count: unknown
+      pending_month_count: unknown
+      my_pending_month_count: unknown
+    }
+
+    const [membershipStatsRows, challengeStatsRows, suspendedRows] = await Promise.all([
+      db.$queryRaw<MembershipStatsRow[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE is_suspended = false) AS active_players,
+          COUNT(*) FILTER (WHERE is_blue_point = true AND is_suspended = false) AS blue_points
+        FROM ranking_memberships
+        WHERE ranking_id = ${membership.ranking_id}
+      `,
+      db.$queryRaw<ChallengeStatsRow[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE status <> 'cancelled') AS challenge_month_count,
+          COUNT(*) FILTER (WHERE status IN ('scheduled', 'accepted')) AS pending_month_count,
+          COUNT(*) FILTER (
+            WHERE status IN ('scheduled', 'accepted')
+              AND (challenger_id = ${userId} OR challenged_id = ${userId})
+          ) AS my_pending_month_count
+        FROM challenges
+        WHERE ranking_id = ${membership.ranking_id}
+          AND scheduled_for >= ${monthStart}
+          AND scheduled_for < ${nextMonth}
+      `,
+      db.ranking_memberships.findMany({
         where: {
           ranking_id: membership.ranking_id,
           is_suspended: true,
@@ -128,8 +136,19 @@ export async function GET() {
           },
         },
         orderBy: [{ license_position: "asc" }, { position: "asc" }],
-      })
-    : []
+      }),
+    ])
+
+    const membershipStats = membershipStatsRows[0]
+    const challengeStats = challengeStatsRows[0]
+
+    activePlayers = toCount(membershipStats?.active_players)
+    bluePoints = toCount(membershipStats?.blue_points)
+    challengeMonthCount = toCount(challengeStats?.challenge_month_count)
+    pendingMonthCount = toCount(challengeStats?.pending_month_count)
+    myPendingMonthCount = toCount(challengeStats?.my_pending_month_count)
+    suspendedMembers = suspendedRows
+  }
 
   const licensePlayers = suspendedMembers.filter(
     (membership) => membership.license_position !== null
@@ -141,7 +160,7 @@ export async function GET() {
   const receivedChallengesRaw = await db.challenges.findMany({
     where: {
       challenged_id: userId,
-      status: { not: "cancelled" },
+      status: { in: ["scheduled", "accepted", "declined"] },
     },
     select: {
       id: true,
@@ -160,7 +179,7 @@ export async function GET() {
     orderBy: {
       scheduled_for: "desc",
     },
-    take: 12,
+    take: 6,
   })
 
   const receivedChallenges = receivedChallengesRaw
@@ -254,7 +273,7 @@ export async function GET() {
       },
     },
     orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }, { id: "desc" }],
-    take: 20,
+    take: 12,
   })
 
   const recentResults = recentResultsRaw

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
@@ -143,6 +144,8 @@ export async function PATCH(request: Request) {
             updated_by: updateData.updated_by,
           },
         })
+
+    revalidateTag("app-branding")
 
     return NextResponse.json({ ok: true, data: toPayload(settings) })
   } catch (error) {

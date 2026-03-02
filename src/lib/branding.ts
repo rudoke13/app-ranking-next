@@ -1,4 +1,5 @@
 import { db } from "@/lib/db"
+import { unstable_cache } from "next/cache"
 
 export const DEFAULT_ADMIN_LOGO_EMAIL = "rodolfo@rldigital.app.br"
 
@@ -30,7 +31,7 @@ export type AppBranding = {
   maintenanceMessage: string | null
 }
 
-export async function getAppBranding(): Promise<AppBranding> {
+const loadAppBranding = async (): Promise<AppBranding> => {
   const fallbackName =
     process.env.NEXT_PUBLIC_APP_NAME ?? "Ranking Tenis TCC"
 
@@ -66,4 +67,13 @@ export async function getAppBranding(): Promise<AppBranding> {
       maintenanceMessage: null,
     }
   }
+}
+
+const getCachedAppBranding = unstable_cache(loadAppBranding, ["app-branding-v1"], {
+  revalidate: 60,
+  tags: ["app-branding"],
+})
+
+export async function getAppBranding(): Promise<AppBranding> {
+  return getCachedAppBranding()
 }
