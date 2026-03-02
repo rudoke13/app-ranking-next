@@ -77,15 +77,42 @@ export async function GET(
   }
 
   const now = new Date()
+  const userId = Number(session.userId)
+  const isAdmin = session.role === "admin"
+  const isRestrictedToMembership =
+    session.role === "player" || session.role === "member"
 
   const ranking = await db.rankings.findUnique({
     where: { id: rankingId },
   })
 
-  if (!ranking || (!ranking.is_active && session.role !== "admin")) {
+  if (!ranking || (!ranking.is_active && !isAdmin)) {
     return NextResponse.json(
       { ok: false, message: "Ranking nao encontrado." },
       { status: 404 }
+    )
+  }
+
+  const userMembership = Number.isFinite(userId)
+    ? await db.ranking_memberships.findUnique({
+        where: {
+          ranking_id_user_id: {
+            ranking_id: rankingId,
+            user_id: userId,
+          },
+        },
+        select: { id: true },
+      })
+    : null
+
+  if (
+    isRestrictedToMembership &&
+    ranking.only_for_enrolled_players &&
+    !userMembership
+  ) {
+    return NextResponse.json(
+      { ok: false, message: "Categoria disponivel apenas para inscritos." },
+      { status: 403 }
     )
   }
 

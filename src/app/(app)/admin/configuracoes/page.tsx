@@ -28,6 +28,7 @@ type RankingItem = {
   slug: string
   description: string | null
   isActive: boolean
+  onlyForEnrolledPlayers: boolean
   activePlayers: number
 }
 
@@ -314,6 +315,34 @@ export default function AdminConfiguracoesPage() {
     )
   }
 
+  const handleToggleOnlyForEnrolled = async (ranking: RankingItem) => {
+    setError(null)
+    setSuccess(null)
+
+    const response = await apiPatch<RankingItem>(
+      `/api/admin/rankings/${ranking.id}`,
+      {
+        onlyForEnrolledPlayers: !ranking.onlyForEnrolledPlayers,
+      }
+    )
+
+    if (!response.ok) {
+      setError(response.message)
+      return
+    }
+
+    setRankings((current) =>
+      current.map((item) =>
+        item.id === ranking.id
+          ? {
+              ...item,
+              onlyForEnrolledPlayers: response.data.onlyForEnrolledPlayers,
+            }
+          : item
+      )
+    )
+  }
+
   const BrandingUploader = ({
     kind,
   }: {
@@ -558,6 +587,27 @@ export default function AdminConfiguracoesPage() {
                         <Badge variant="secondary">
                           {ranking.activePlayers} ativos
                         </Badge>
+                        <Badge
+                          variant={
+                            ranking.onlyForEnrolledPlayers
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {ranking.onlyForEnrolledPlayers
+                            ? "Somente inscritos"
+                            : "Publica"}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleToggleOnlyForEnrolled(ranking)}
+                        >
+                          {ranking.onlyForEnrolledPlayers
+                            ? "Mostrar para todos"
+                            : "Mostrar so para inscritos"}
+                        </Button>
                         <Button
                           type="button"
                           variant={ranking.isActive ? "outline" : "default"}

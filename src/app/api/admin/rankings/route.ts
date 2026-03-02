@@ -9,6 +9,7 @@ import { slugify } from "@/lib/slug"
 const createSchema = z.object({
   name: z.string().min(2).max(120),
   description: z.string().max(1000).optional().nullable(),
+  onlyForEnrolledPlayers: z.boolean().optional(),
 })
 
 const buildUniqueSlug = async (base: string) => {
@@ -57,6 +58,7 @@ export async function GET() {
       slug: ranking.slug,
       description: ranking.description,
       isActive: ranking.is_active,
+      onlyForEnrolledPlayers: ranking.only_for_enrolled_players,
       activePlayers: countMap.get(ranking.id) ?? 0,
     })),
   })
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
       slug,
       description: parsed.data.description ?? null,
       is_active: true,
+      only_for_enrolled_players: parsed.data.onlyForEnrolledPlayers ?? false,
     },
   })
 
@@ -100,6 +103,7 @@ export async function POST(request: Request) {
       slug: ranking.slug,
       description: ranking.description,
       isActive: ranking.is_active,
+      onlyForEnrolledPlayers: ranking.only_for_enrolled_players,
       activePlayers: 0,
     },
   })

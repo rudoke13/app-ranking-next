@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -145,19 +145,20 @@ model ranking_snapshots {
 }
 
 model rankings {
-  id                  Int                   @id @default(autoincrement())
-  name                String
-  slug                String                @unique
-  description         String?
-  is_active           Boolean               @default(true)
-  created_at          DateTime?             @default(now())
-  blue_point_history  blue_point_history[]
-  challenges          challenges[]
-  collaborator_rankings collaborator_rankings[]
-  ranking_memberships ranking_memberships[]
-  ranking_snapshots   ranking_snapshots[]
-  round_logs          round_logs[]
-  rounds              rounds[]
+  id                        Int                     @id @default(autoincrement())
+  name                      String
+  slug                      String                  @unique
+  description               String?
+  is_active                 Boolean                 @default(true)
+  only_for_enrolled_players Boolean                 @default(false)
+  created_at                DateTime?               @default(now())
+  blue_point_history        blue_point_history[]
+  challenges                challenges[]
+  collaborator_rankings     collaborator_rankings[]
+  ranking_memberships       ranking_memberships[]
+  ranking_snapshots         ranking_snapshots[]
+  round_logs                round_logs[]
+  rounds                    rounds[]
 }
 
 model round_logs {
@@ -207,47 +208,47 @@ model rounds {
 }
 
 model users {
-  id                                          Int                   @id @default(autoincrement())
-  role                                        users_role            @default(player)
+  id                                          Int                     @id @default(autoincrement())
+  role                                        users_role              @default(player)
   gender                                      users_gender?
   first_name                                  String
   last_name                                   String
   nickname                                    String?
-  email                                       String                @unique
+  email                                       String                  @unique
   phone                                       String?
   birth_date                                  DateTime?
   password_hash                               String
-  must_reset_password                         Boolean               @default(false)
+  must_reset_password                         Boolean                 @default(false)
   password_reset_token                        String?
   password_reset_expires_at                   DateTime?
-  sessionToken                                String?               @map("session_token")
-  avatarUrl                                   String?               @map("avatar_path")
-  created_at                                  DateTime?             @default(now())
+  sessionToken                                String?                 @map("session_token")
+  avatarUrl                                   String?                 @map("avatar_path")
+  created_at                                  DateTime?               @default(now())
   updated_at                                  DateTime?
   blue_point_history                          blue_point_history[]
   challenge_events                            challenge_events[]
-  challenges_challenges_challenged_idTousers  challenges[]          @relation("challenges_challenged_idTousers")
-  challenges_challenges_challenger_idTousers  challenges[]          @relation("challenges_challenger_idTousers")
-  collaborator_rankings                      collaborator_rankings[]
-  app_settings                                app_settings[]       @relation("app_settings_user")
+  challenges_challenges_challenged_idTousers  challenges[]            @relation("challenges_challenged_idTousers")
+  challenges_challenges_challenger_idTousers  challenges[]            @relation("challenges_challenger_idTousers")
+  collaborator_rankings                       collaborator_rankings[]
+  app_settings                                app_settings[]          @relation("app_settings_user")
   ranking_memberships                         ranking_memberships[]
   ranking_snapshots                           ranking_snapshots[]
-  rounds_rounds_featured_challenged_idTousers rounds[]              @relation("rounds_featured_challenged_idTousers")
-  rounds_rounds_featured_challenger_idTousers rounds[]              @relation("rounds_featured_challenger_idTousers")
-  rounds_rounds_updated_byTousers             rounds[]              @relation("rounds_updated_byTousers")
+  rounds_rounds_featured_challenged_idTousers rounds[]                @relation("rounds_featured_challenged_idTousers")
+  rounds_rounds_featured_challenger_idTousers rounds[]                @relation("rounds_featured_challenger_idTousers")
+  rounds_rounds_updated_byTousers             rounds[]                @relation("rounds_updated_byTousers")
 }
 
 model app_settings {
-  id                   Int       @id @default(autoincrement())
-  app_name             String?
-  logo_url             String?
-  favicon_url          String?
-  pwa_icon_url         String?
-  maintenance_enabled  Boolean   @default(false)
-  maintenance_message  String?
-  updated_at           DateTime? @default(now())
-  updated_by           Int?
-  users                users?    @relation("app_settings_user", fields: [updated_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  id                  Int       @id @default(autoincrement())
+  app_name            String?
+  logo_url            String?
+  favicon_url         String?
+  pwa_icon_url        String?
+  maintenance_enabled Boolean   @default(false)
+  maintenance_message String?
+  updated_at          DateTime? @default(now())
+  updated_by          Int?
+  users               users?    @relation("app_settings_user", fields: [updated_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([updated_by])
 }

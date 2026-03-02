@@ -10,6 +10,7 @@ const patchSchema = z
     name: z.string().min(2).max(120).optional(),
     description: z.string().max(1000).optional().nullable(),
     isActive: z.boolean().optional(),
+    onlyForEnrolledPlayers: z.boolean().optional(),
   })
   .strict()
 
@@ -60,6 +61,8 @@ export async function PATCH(
       name: parsed.data.name ?? undefined,
       description: parsed.data.description,
       is_active: parsed.data.isActive ?? undefined,
+      only_for_enrolled_players:
+        parsed.data.onlyForEnrolledPlayers ?? undefined,
     },
   })
 
@@ -71,6 +74,7 @@ export async function PATCH(
       slug: ranking.slug,
       description: ranking.description,
       isActive: ranking.is_active,
+      onlyForEnrolledPlayers: ranking.only_for_enrolled_players,
     },
   })
 }

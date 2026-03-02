@@ -12,13 +12,6 @@ export async function GET() {
     )
   }
 
-  const isAdmin = session.role === "admin"
-
-  const rankings = await db.rankings.findMany({
-    where: isAdmin ? undefined : { is_active: true },
-    orderBy: { name: "asc" },
-  })
-
   const userId = Number(session.userId)
   const userMemberships = Number.isFinite(userId)
     ? await db.ranking_memberships.findMany({
@@ -27,7 +20,28 @@ export async function GET() {
       })
     : []
 
-  const memberSet = new Set(userMemberships.map((item) => item.ranking_id))
+  const membershipIds = userMemberships.map((item) => item.ranking_id)
+  const memberSet = new Set(membershipIds)
+  const isAdmin = session.role === "admin"
+  const isRestrictedToMembership =
+    session.role === "player" || session.role === "member"
+
+  const rankings = await db.rankings.findMany({
+    where: isAdmin
+      ? undefined
+      : {
+          is_active: true,
+          ...(isRestrictedToMembership
+            ? {
+                OR: [
+                  { only_for_enrolled_players: false },
+                  ...(membershipIds.length ? [{ id: { in: membershipIds } }] : []),
+                ],
+              }
+            : {}),
+        },
+    orderBy: { name: "asc" },
+  })
 
   const counts = await db.ranking_memberships.groupBy({
     by: ["ranking_id"],
