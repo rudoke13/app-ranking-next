@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type DragEvent } from "react"
 import Link from "next/link"
-import { GripVertical, Pencil, Swords, TriangleAlert, Users, X } from "lucide-react"
+import { GripVertical, Pencil, Swords, Users, X } from "lucide-react"
 
 import EmptyState from "@/components/app/EmptyState"
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
@@ -21,7 +21,6 @@ import {
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 import {
-  formatDateTimeInAppTz,
   nowInAppTimeZone,
   toDateTimeInputInAppTz,
 } from "@/lib/timezone-client"
@@ -390,44 +389,6 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   const clientCanChallenge = effectivePhase === "blue" || effectivePhase === "open"
   const showReleaseFlash = Boolean(releaseFlashAt) && clientCanChallenge
 
-  const getRuleMessage = () => {
-    if (!playersData) return ""
-    const message = playersData.challengeWindow.message?.trim()
-    if (message) return message
-    const phase = effectivePhase
-    const formatDate = (value?: string | null) =>
-      formatDateTimeInAppTz(
-        value ?? null,
-        { year: "numeric" },
-        ""
-      )
-    if (phase === "before") {
-      return `Rodada abre em ${formatDate(
-        playersData.challengeWindow.roundStart
-      )}.`
-    }
-    if (phase === "waiting_blue") {
-      return `Os desafios ainda nao estao liberados. A janela de ponto azul inicia em ${formatDate(
-        playersData.challengeWindow.unlockAt
-      )}.`
-    }
-    if (phase === "closed") {
-      return "Periodo da rodada encerrado."
-    }
-    if (phase === "blue") {
-      return "Periodo exclusivo para ponto azul."
-    }
-    if (phase === "waiting_open") {
-      return `Os desafios livres serao liberados em ${formatDate(
-        playersData.challengeWindow.openStart
-      )}.`
-    }
-    if (phase === "after_open") {
-      return "Janela de desafios livres encerrada."
-    }
-    return "Desafios livres ativos."
-  }
-
   const canSaveOrder =
     editing && !!playersData && draftPlayers.length === playersData.players.length
 
@@ -729,9 +690,12 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   if (loadingRankings) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="flex gap-4 overflow-x-auto pb-1">
           {Array.from({ length: 3 }).map((_, index) => (
-            <Card key={`ranking-skeleton-${index}`} className="shadow-none">
+            <Card
+              key={`ranking-skeleton-${index}`}
+              className="w-[320px] shrink-0 shadow-none"
+            >
               <CardHeader>
                 <Skeleton className="h-5 w-32" />
               </CardHeader>
@@ -768,14 +732,14 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
   return (
     <div className="space-y-8">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="flex gap-4 overflow-x-auto pb-1">
         {rankings.map((category) => (
           <Card
             key={category.id}
             className={
               selectedId === String(category.id)
-                ? "border-primary/40 bg-primary/5 shadow-none"
-                : "shadow-none"
+                ? "w-[320px] shrink-0 border-primary/40 bg-primary/5 shadow-none"
+                : "w-[320px] shrink-0 shadow-none"
             }
             role="button"
             tabIndex={0}
@@ -820,33 +784,6 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
                 {actionError}
               </p>
             ) : null}
-            <div className="rounded-lg border border-warning/30 bg-warning/15 p-4 text-sm text-warning-foreground">
-              <div className="flex items-center gap-2 font-semibold">
-                <TriangleAlert className="size-4" />
-                Regra da rodada
-              </div>
-              <div className="mt-1 space-y-1 text-xs text-warning-foreground/80">
-                <p>{getRuleMessage()}</p>
-                {playersData.challengeWindow.requiresBlue ? (
-                  <p>Somente jogadores ponto azul podem desafiar.</p>
-                ) : null}
-                {playersData.challengeWindow.requiresRegular ? (
-                  <p>Somente jogadores regulares podem desafiar.</p>
-                ) : null}
-                {playersData.accessThreshold ? (
-                  <p>Jogadores de acesso so podem desafiar em desafios livres.</p>
-                ) : null}
-                {playersData.accessThreshold ? (
-                  <p>
-                    Jogadores de acesso podem desafiar a partir da posicao{" "}
-                    {playersData.accessThreshold}.
-                  </p>
-                ) : null}
-                {playersData.accessThreshold ? (
-                  <p>Se perderem um desafio de acesso, vao para a ultima posicao.</p>
-                ) : null}
-              </div>
-            </div>
             {showReleaseFlash ? (
               <div className="rounded-lg border border-success/40 bg-success/10 px-4 py-2 text-sm text-success-foreground">
                 Desafios liberados agora. Corra para desafiar!

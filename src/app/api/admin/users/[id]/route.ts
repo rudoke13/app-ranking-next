@@ -39,6 +39,7 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   role: z.enum(["admin", "player", "collaborator", "member"]).optional(),
   avatarUrl: z.string().max(255).optional().nullable(),
+  player_ranking_ids: z.array(z.number().int().positive()).optional(),
   collaborator_ranking_ids: z.array(z.number().int().positive()).optional(),
   membership: membershipSchema.optional(),
 })
@@ -129,6 +130,9 @@ export async function PATCH(
   }
 
   const updates: Record<string, unknown> = {}
+  const playerRankingIds = parsed.data.player_ranking_ids
+  const uniquePlayerRankingIds =
+    playerRankingIds !== undefined ? Array.from(new Set(playerRankingIds)) : null
   const collaboratorRankingIds = parsed.data.collaborator_ranking_ids
   const uniqueCollaboratorRankings = collaboratorRankingIds
     ? Array.from(new Set(collaboratorRankingIds))
@@ -163,6 +167,37 @@ export async function PATCH(
           { status: 404 }
         )
       }
+    }
+  }
+
+  if (uniquePlayerRankingIds !== null) {
+    if (session.role !== "admin") {
+      return NextResponse.json(
+        { ok: false, message: "Apenas admin pode ajustar categorias do jogador." },
+        { status: 403 }
+      )
+    }
+    if (uniquePlayerRankingIds.length === 0) {
+      return NextResponse.json(
+        { ok: false, message: "Selecione ao menos uma categoria do ranking." },
+        { status: 422 }
+      )
+    }
+    const nextRole = parsed.data.role ?? existing.role
+    if (nextRole !== "player" && nextRole !== "member") {
+      return NextResponse.json(
+        { ok: false, message: "Somente jogadores podem ter categorias de ranking." },
+        { status: 422 }
+      )
+    }
+    const rankingCount = await db.rankings.count({
+      where: { id: { in: uniquePlayerRankingIds } },
+    })
+    if (rankingCount !== uniquePlayerRankingIds.length) {
+      return NextResponse.json(
+        { ok: false, message: "Categoria do ranking nao encontrada." },
+        { status: 404 }
+      )
     }
   }
 
@@ -271,9 +306,21 @@ export async function PATCH(
     }
   }
 
+  if (uniquePlayerRankingIds !== null && membershipInput) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          "Nao e possivel enviar ajuste individual de vinculo e lista de categorias ao mesmo tempo.",
+      },
+      { status: 400 }
+    )
+  }
+
   const hasMembershipIntent = Boolean(membershipInput)
   if (
     Object.keys(updates).length === 0 &&
+    uniquePlayerRankingIds === null &&
     Object.keys(membershipUpdates).length === 0 &&
     moveToRankingId === undefined &&
     activeInput === undefined &&
@@ -433,6 +480,56 @@ export async function PATCH(
               license_position: membership.license_position ?? null,
             }
           }
+        }
+      }
+
+      if (uniquePlayerRankingIds !== null) {
+        const currentMemberships = await tx.ranking_memberships.findMany({
+          where: { user_id: userId },
+          select: { id: true, ranking_id: true, is_suspended: true },
+        })
+
+        const currentRankingSet = new Set(
+          currentMemberships.map((membership) => membership.ranking_id)
+        )
+        const desiredRankingSet = new Set(uniquePlayerRankingIds)
+
+        const membershipIdsToDelete = currentMemberships
+          .filter((membership) => !desiredRankingSet.has(membership.ranking_id))
+          .map((membership) => membership.id)
+
+        if (membershipIdsToDelete.length) {
+          await tx.ranking_memberships.deleteMany({
+            where: { id: { in: membershipIdsToDelete } },
+          })
+        }
+
+        const rankingIdsToCreate = uniquePlayerRankingIds.filter(
+          (rankingId) => !currentRankingSet.has(rankingId)
+        )
+        const defaultSuspended =
+          activeInput !== undefined
+            ? !activeInput
+            : currentMemberships.length > 0
+            ? currentMemberships.every((membership) =>
+                Boolean(membership.is_suspended)
+              )
+            : false
+
+        for (const rankingId of rankingIdsToCreate) {
+          const maxPosition = await tx.ranking_memberships.aggregate({
+            where: { ranking_id: rankingId },
+            _max: { position: true },
+          })
+          const nextPosition = (maxPosition._max.position ?? 0) + 1
+          await tx.ranking_memberships.create({
+            data: {
+              ranking_id: rankingId,
+              user_id: userId,
+              position: nextPosition,
+              is_suspended: defaultSuspended,
+            },
+          })
         }
       }
 

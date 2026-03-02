@@ -103,6 +103,7 @@ export default function AdminUsuariosPage() {
     password: string
     passwordConfirm: string
     rankingId: string
+    rankingIds: string[]
     collaboratorRankingIds: string[]
   } | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -115,6 +116,7 @@ export default function AdminUsuariosPage() {
     phone: "",
     role: "player",
     rankingId: "",
+    rankingIds: [] as string[],
     collaboratorRankingIds: [] as string[],
     password: "",
     passwordConfirm: "",
@@ -214,6 +216,9 @@ export default function AdminUsuariosPage() {
       rankingId: user.memberships[0]?.rankingId
         ? String(user.memberships[0].rankingId)
         : "",
+      rankingIds: user.memberships.map((membership) =>
+        String(membership.rankingId)
+      ),
       collaboratorRankingIds: user.collaboratorRankings.map((entry) =>
         String(entry.id)
       ),
@@ -233,6 +238,7 @@ export default function AdminUsuariosPage() {
       phone: "",
       role: "player",
       rankingId: "",
+      rankingIds: [],
       collaboratorRankingIds: [],
       password: "",
       passwordConfirm: "",
@@ -251,13 +257,21 @@ export default function AdminUsuariosPage() {
     const lastName = createDraft.lastName.trim()
     const email = createDraft.email.trim()
     const rankingId = createDraft.rankingId
+    const rankingIds = createDraft.rankingIds
     const collaboratorRankingIds = createDraft.collaboratorRankingIds
     const password = createDraft.password.trim()
     const passwordConfirm = createDraft.passwordConfirm.trim()
 
-    if ((createDraft.role === "player" || createDraft.role === "member") && !rankingId) {
-      setCreateError("Selecione a categoria do ranking.")
-      return
+    if (createDraft.role === "player" || createDraft.role === "member") {
+      if (viewerRole === "admin") {
+        if (rankingIds.length === 0) {
+          setCreateError("Selecione ao menos uma categoria do ranking.")
+          return
+        }
+      } else if (!rankingId) {
+        setCreateError("Selecione a categoria do ranking.")
+        return
+      }
     }
 
     if (createDraft.role === "collaborator" && collaboratorRankingIds.length === 0) {
@@ -289,6 +303,11 @@ export default function AdminUsuariosPage() {
       phone: createDraft.phone.trim() || null,
       role: createDraft.role,
       ranking_id: rankingId ? Number(rankingId) : undefined,
+      ranking_ids:
+        viewerRole === "admin" &&
+        (createDraft.role === "player" || createDraft.role === "member")
+          ? rankingIds.map((id) => Number(id))
+          : undefined,
       collaborator_ranking_ids:
         createDraft.role === "collaborator"
           ? collaboratorRankingIds.map((id) => Number(id))
@@ -313,6 +332,7 @@ export default function AdminUsuariosPage() {
       phone: "",
       role: "player",
       rankingId: "",
+      rankingIds: [],
       collaboratorRankingIds: [],
       password: "",
       passwordConfirm: "",
@@ -336,15 +356,24 @@ export default function AdminUsuariosPage() {
       }
     }
 
-    if (
-      editingHasMembership === false &&
-      draft.status === "active" &&
-      (draft.role === "player" || draft.role === "member") &&
-      !draft.rankingId
-    ) {
-      setActionError("Selecione a categoria do ranking para ativar o jogador.")
-      setSaving(false)
-      return
+    const isPlayerOrMember = draft.role === "player" || draft.role === "member"
+
+    if (isPlayerOrMember) {
+      if (viewerRole === "admin") {
+        if (draft.rankingIds.length === 0) {
+          setActionError("Selecione ao menos uma categoria do ranking.")
+          setSaving(false)
+          return
+        }
+      } else if (
+        editingHasMembership === false &&
+        draft.status === "active" &&
+        !draft.rankingId
+      ) {
+        setActionError("Selecione a categoria do ranking para ativar o jogador.")
+        setSaving(false)
+        return
+      }
     }
 
     if (
@@ -372,6 +401,8 @@ export default function AdminUsuariosPage() {
         payload.collaborator_ranking_ids = draft.collaboratorRankingIds.map(
           (id) => Number(id)
         )
+      } else if (isPlayerOrMember) {
+        payload.player_ranking_ids = draft.rankingIds.map((id) => Number(id))
       }
     }
 
@@ -379,7 +410,7 @@ export default function AdminUsuariosPage() {
       payload.password = password
     }
 
-    if (editingHasMembership === false && draft.rankingId) {
+    if (viewerRole !== "admin" && editingHasMembership === false && draft.rankingId) {
       payload.membership = {
         ranking_id: Number(draft.rankingId),
         is_suspended: draft.status === "inactive",
@@ -621,34 +652,68 @@ export default function AdminUsuariosPage() {
                 </Select>
               </div>
               {createDraft.role === "player" || createDraft.role === "member" ? (
-                <div className="space-y-2">
-                  <Label>Categoria do ranking</Label>
-                  <Select
-                    value={createDraft.rankingId}
-                    onValueChange={(value) =>
-                      setCreateDraft((current) => ({
-                        ...current,
-                        rankingId: value,
-                      }))
-                    }
-                    disabled={rankings.length === 0}
-                  >
-                    <SelectTrigger>
-                      <SelectValue
-                        placeholder={
-                          rankings.length === 0 ? "Carregando..." : "Selecione"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {rankings.map((ranking) => (
-                        <SelectItem key={ranking.id} value={String(ranking.id)}>
-                          {ranking.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                viewerRole === "admin" ? (
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Categorias do ranking</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {rankings.map((ranking) => {
+                        const value = String(ranking.id)
+                        const selected = createDraft.rankingIds.includes(value)
+                        return (
+                          <label
+                            key={ranking.id}
+                            className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  rankingIds: selected
+                                    ? current.rankingIds.filter(
+                                        (item) => item !== value
+                                      )
+                                    : [...current.rankingIds, value],
+                                }))
+                              }
+                            />
+                            <span>{ranking.name}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Categoria do ranking</Label>
+                    <Select
+                      value={createDraft.rankingId}
+                      onValueChange={(value) =>
+                        setCreateDraft((current) => ({
+                          ...current,
+                          rankingId: value,
+                        }))
+                      }
+                      disabled={rankings.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            rankings.length === 0 ? "Carregando..." : "Selecione"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {rankings.map((ranking) => (
+                          <SelectItem key={ranking.id} value={String(ranking.id)}>
+                            {ranking.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )
               ) : null}
               {viewerRole === "admin" && createDraft.role === "collaborator" ? (
                 <div className="space-y-2 md:col-span-2">
@@ -966,40 +1031,77 @@ export default function AdminUsuariosPage() {
                           </p>
                         ) : null}
                       </div>
-                      {editingHasMembership === false &&
-                      (draft.role === "player" || draft.role === "member") ? (
-                        <div className="space-y-2">
-                          <Label>Categoria do ranking</Label>
-                          <Select
-                            value={draft.rankingId}
-                            onValueChange={(value) =>
-                              setDraft((current) =>
-                                current ? { ...current, rankingId: value } : current
-                              )
-                            }
-                            disabled={rankings.length === 0}
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={
-                                  rankings.length === 0
-                                    ? "Carregando..."
-                                    : "Selecione"
-                                }
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {rankings.map((ranking) => (
-                                <SelectItem
-                                  key={ranking.id}
-                                  value={String(ranking.id)}
-                                >
-                                  {ranking.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      {draft.role === "player" || draft.role === "member" ? (
+                        viewerRole === "admin" ? (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label>Categorias do ranking</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {rankings.map((ranking) => {
+                                const value = String(ranking.id)
+                                const selected = draft.rankingIds.includes(value)
+                                return (
+                                  <label
+                                    key={ranking.id}
+                                    className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      onChange={() =>
+                                        setDraft((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                rankingIds: selected
+                                                  ? current.rankingIds.filter(
+                                                      (item) => item !== value
+                                                    )
+                                                  : [...current.rankingIds, value],
+                                              }
+                                            : current
+                                        )
+                                      }
+                                    />
+                                    <span>{ranking.name}</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ) : editingHasMembership === false ? (
+                          <div className="space-y-2">
+                            <Label>Categoria do ranking</Label>
+                            <Select
+                              value={draft.rankingId}
+                              onValueChange={(value) =>
+                                setDraft((current) =>
+                                  current ? { ...current, rankingId: value } : current
+                                )
+                              }
+                              disabled={rankings.length === 0}
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    rankings.length === 0
+                                      ? "Carregando..."
+                                      : "Selecione"
+                                  }
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {rankings.map((ranking) => (
+                                  <SelectItem
+                                    key={ranking.id}
+                                    value={String(ranking.id)}
+                                  >
+                                    {ranking.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : null
                       ) : null}
                       <div className="space-y-2">
                         <Label>Permissao</Label>

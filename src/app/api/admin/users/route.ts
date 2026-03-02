@@ -32,6 +32,7 @@ const createSchema = z.object({
   birth_date: z.string().optional().nullable(),
   role: z.enum(["admin", "player", "collaborator", "member"]).optional(),
   ranking_id: z.number().int().positive().optional(),
+  ranking_ids: z.array(z.number().int().positive()).optional(),
   collaborator_ranking_ids: z.array(z.number().int().positive()).optional(),
   password: z.string().min(4).max(100).optional(),
 })
@@ -69,10 +70,18 @@ export async function POST(request: Request) {
   const birthDateInput = parsed.data.birth_date?.trim() ?? ""
   const role = parsed.data.role ?? "player"
   const rankingId = parsed.data.ranking_id
+  const rankingIds = parsed.data.ranking_ids ?? []
   const collaboratorRankingIds = parsed.data.collaborator_ranking_ids ?? []
   const passwordInput = parsed.data.password?.trim()
   const passwordValue = passwordInput ? passwordInput : DEFAULT_PASSWORD
   const mustResetPassword = !passwordInput
+  const uniquePlayerRankings = Array.from(
+    new Set(
+      (rankingIds.length ? rankingIds : rankingId ? [rankingId] : []).filter(
+        Number.isFinite
+      )
+    )
+  )
 
   const allowedRankingIds = await getAllowedRankingIds(session)
   const isCollaborator = allowedRankingIds !== null
@@ -101,6 +110,15 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    if (rankingIds.length > 1) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Somente admin pode vincular jogador em multiplas categorias.",
+        },
+        { status: 403 }
+      )
+    }
   }
 
   if (!firstName || !lastName) {
@@ -110,11 +128,19 @@ export async function POST(request: Request) {
     )
   }
 
-  if ((role === "player" || role === "member") && rankingId === undefined) {
-    return NextResponse.json(
-      { ok: false, message: "Informe a categoria do ranking." },
-      { status: 422 }
-    )
+  if (role === "player" || role === "member") {
+    if (isCollaborator && rankingId === undefined) {
+      return NextResponse.json(
+        { ok: false, message: "Informe a categoria do ranking." },
+        { status: 422 }
+      )
+    }
+    if (!isCollaborator && uniquePlayerRankings.length === 0) {
+      return NextResponse.json(
+        { ok: false, message: "Selecione ao menos uma categoria do ranking." },
+        { status: 422 }
+      )
+    }
   }
 
   const birthDate = birthDateInput ? new Date(birthDateInput) : null
@@ -133,7 +159,27 @@ export async function POST(request: Request) {
     )
   }
 
-  if (rankingId !== undefined) {
+  if (role === "player" || role === "member") {
+    const targetRankingIds = isCollaborator
+      ? rankingId
+        ? [rankingId]
+        : []
+      : uniquePlayerRankings
+
+    if (targetRankingIds.length) {
+      const rankingCount = await db.rankings.count({
+        where: { id: { in: targetRankingIds } },
+      })
+      if (rankingCount !== targetRankingIds.length) {
+        return NextResponse.json(
+          { ok: false, message: "Ranking nao encontrado." },
+          { status: 404 }
+        )
+      }
+    }
+  }
+
+  if (isCollaborator && rankingId !== undefined) {
     const ranking = await db.rankings.findUnique({
       where: { id: rankingId },
       select: { id: true },
@@ -179,7 +225,7 @@ export async function POST(request: Request) {
         },
       })
 
-      let membership: {
+      const createdMemberships: {
         id: number
         ranking_id: number
         position: number | null
@@ -188,18 +234,27 @@ export async function POST(request: Request) {
         is_access_challenge: boolean
         is_suspended: boolean | null
         ranking_name: string
-      } | null = null
+      }[] = []
 
-      if (rankingId !== undefined) {
+      const targetRankingIds =
+        role === "player" || role === "member"
+          ? isCollaborator
+            ? rankingId
+              ? [rankingId]
+              : []
+            : uniquePlayerRankings
+          : []
+
+      for (const targetRankingId of targetRankingIds) {
         const maxPosition = await tx.ranking_memberships.aggregate({
-          where: { ranking_id: rankingId },
+          where: { ranking_id: targetRankingId },
           _max: { position: true },
         })
         const nextPosition = (maxPosition._max.position ?? 0) + 1
 
         const createdMembership = await tx.ranking_memberships.create({
           data: {
-            ranking_id: rankingId,
+            ranking_id: targetRankingId,
             user_id: user.id,
             position: nextPosition,
           },
@@ -215,7 +270,7 @@ export async function POST(request: Request) {
           },
         })
 
-        membership = {
+        createdMemberships.push({
           id: createdMembership.id,
           ranking_id: createdMembership.ranking_id,
           position: createdMembership.position ?? null,
@@ -224,7 +279,7 @@ export async function POST(request: Request) {
           is_access_challenge: createdMembership.is_access_challenge,
           is_suspended: createdMembership.is_suspended,
           ranking_name: createdMembership.rankings.name,
-        }
+        })
       }
 
       if (role === "collaborator" && uniqueCollaboratorRankings.length) {
@@ -237,7 +292,7 @@ export async function POST(request: Request) {
         })
       }
 
-      return { user, membership }
+      return { user, memberships: createdMemberships }
     })
 
     return NextResponse.json(
@@ -260,22 +315,16 @@ export async function POST(request: Request) {
             : null,
           role: result.user.role,
           avatarUrl: result.user.avatarUrl ?? null,
-          memberships: result.membership
-            ? [
-                {
-                  id: result.membership.id,
-                  rankingId: result.membership.ranking_id,
-                  rankingName: result.membership.ranking_name,
-                  position: result.membership.position,
-                  licensePosition: result.membership.license_position ?? null,
-                  isBluePoint: Boolean(result.membership.is_blue_point),
-                  isAccessChallenge: Boolean(
-                    result.membership.is_access_challenge
-                  ),
-                  isSuspended: Boolean(result.membership.is_suspended),
-                },
-              ]
-            : [],
+          memberships: result.memberships.map((membership) => ({
+            id: membership.id,
+            rankingId: membership.ranking_id,
+            rankingName: membership.ranking_name,
+            position: membership.position,
+            licensePosition: membership.license_position ?? null,
+            isBluePoint: Boolean(membership.is_blue_point),
+            isAccessChallenge: Boolean(membership.is_access_challenge),
+            isSuspended: Boolean(membership.is_suspended),
+          })),
         },
       },
       { status: 201 }
