@@ -4,7 +4,8 @@ import { z } from "zod"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { monthKeyFromValue, monthStartLocalFromValue } from "@/lib/date"
 import { db } from "@/lib/db"
-import { hasAdminAccess } from "@/lib/domain/permissions"
+import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
+import { hasStaffAccess } from "@/lib/domain/permissions"
 
 const querySchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
@@ -155,7 +156,7 @@ export async function GET(request: Request) {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -175,9 +176,30 @@ export async function GET(request: Request) {
     )
   }
 
-  const rankingId = parsed.data.rankingId
+  let rankingId = parsed.data.rankingId
     ? Number(parsed.data.rankingId)
     : null
+
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  if (allowedRankingIds !== null) {
+    if (!allowedRankingIds.length) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador sem rankings vinculados." },
+        { status: 403 }
+      )
+    }
+
+    if (rankingId === null) {
+      rankingId = allowedRankingIds[0] ?? null
+    }
+
+    if (!rankingId || !allowedRankingIds.includes(rankingId)) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
+    }
+  }
 
   const fallbackMonthValue =
     parsed.data.month ?? new Date().toISOString().slice(0, 7)
@@ -230,6 +252,9 @@ export async function GET(request: Request) {
       ),
       title: existing?.title ?? null,
       id: existing?.id ?? null,
+      viewer_role: session.role,
+      allow_general: allowedRankingIds === null,
+      allowed_ranking_ids: allowedRankingIds,
     },
   })
 }
@@ -243,7 +268,7 @@ export async function PATCH(request: Request) {
     )
   }
 
-  if (!hasAdminAccess(session)) {
+  if (!hasStaffAccess(session)) {
     return NextResponse.json(
       { ok: false, message: "Acesso restrito." },
       { status: 403 }
@@ -275,6 +300,29 @@ export async function PATCH(request: Request) {
   }
 
   const rankingId = parsed.data.ranking_id ?? null
+  const allowedRankingIds = await getAllowedRankingIds(session)
+  if (allowedRankingIds !== null) {
+    if (!allowedRankingIds.length) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador sem rankings vinculados." },
+        { status: 403 }
+      )
+    }
+
+    if (!rankingId) {
+      return NextResponse.json(
+        { ok: false, message: "Colaborador precisa selecionar um ranking." },
+        { status: 403 }
+      )
+    }
+
+    if (!allowedRankingIds.includes(rankingId)) {
+      return NextResponse.json(
+        { ok: false, message: "Sem permissao para este ranking." },
+        { status: 403 }
+      )
+    }
+  }
 
   const openRound = await db.rounds.findFirst({
     where: { ranking_id: rankingId, status: "open" },

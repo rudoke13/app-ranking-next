@@ -36,14 +36,22 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/admin")) {
+    if (pathname === "/admin" || pathname === "/admin/") {
+      return NextResponse.redirect(new URL("/admin/usuarios", request.url))
+    }
+
     if (session.role === "admin") {
       return NextResponse.next()
     }
 
     const isCollaborator = session.role === "collaborator"
-    const collaboratorAllowed =
-      pathname.startsWith("/admin/usuarios") ||
-      pathname.startsWith("/admin/usuarios/")
+    const collaboratorAllowed = [
+      "/admin/usuarios",
+      "/admin/rodadas",
+      "/admin/config",
+    ].some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    )
 
     if (!isCollaborator || !collaboratorAllowed) {
       return NextResponse.redirect(new URL("/dashboard", request.url))

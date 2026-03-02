@@ -35,6 +35,14 @@ type RankingItem = {
   name: string
 }
 
+type RoundsPayload = {
+  data: RoundItem[]
+  viewer: {
+    role: string
+    allowedRankingIds: number[] | null
+  }
+}
+
 const monthValue = (date: Date) => {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -47,6 +55,10 @@ const monthLabel = (date: Date) =>
 export default function AdminRodadasPage() {
   const [rounds, setRounds] = useState<RoundItem[]>([])
   const [rankings, setRankings] = useState<RankingItem[]>([])
+  const [viewerRole, setViewerRole] = useState("admin")
+  const [allowedRankingIds, setAllowedRankingIds] = useState<number[] | null>(
+    null
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState("")
@@ -68,7 +80,7 @@ export default function AdminRodadasPage() {
   const loadData = async () => {
     setLoading(true)
     const [roundsResponse, rankingsResponse] = await Promise.all([
-      apiGet<RoundItem[]>("/api/admin/rounds"),
+      apiGet<RoundsPayload>("/api/admin/rounds"),
       apiGet<RankingItem[]>("/api/rankings"),
     ])
 
@@ -78,11 +90,32 @@ export default function AdminRodadasPage() {
       return
     }
 
+    const { viewer } = roundsResponse.data
+    setViewerRole(viewer.role)
+    setAllowedRankingIds(viewer.allowedRankingIds)
+
     if (rankingsResponse.ok) {
-      setRankings(rankingsResponse.data)
+      const nextRankings =
+        viewer.allowedRankingIds === null
+          ? rankingsResponse.data
+          : rankingsResponse.data.filter((ranking) =>
+              viewer.allowedRankingIds?.includes(ranking.id)
+            )
+
+      setRankings(nextRankings)
+      setRankingId((current) => {
+        if (viewer.role !== "collaborator") return current
+        const first = nextRankings[0]
+        if (!first) return "all"
+        if (current === "all") return String(first.id)
+        if (!nextRankings.some((ranking) => String(ranking.id) === current)) {
+          return String(first.id)
+        }
+        return current
+      })
     }
 
-    setRounds(roundsResponse.data)
+    setRounds(roundsResponse.data.data)
     setLoading(false)
   }
 
@@ -93,6 +126,20 @@ export default function AdminRodadasPage() {
   const handleCreate = async () => {
     if (!title.trim()) {
       setError("Informe um titulo para a rodada.")
+      return
+    }
+
+    if (viewerRole === "collaborator" && rankingId === "all") {
+      setError("Selecione um ranking para criar a rodada.")
+      return
+    }
+
+    if (
+      viewerRole === "collaborator" &&
+      allowedRankingIds &&
+      !allowedRankingIds.includes(Number(rankingId))
+    ) {
+      setError("Sem permissao para este ranking.")
       return
     }
 
@@ -159,11 +206,13 @@ export default function AdminRodadasPage() {
           <div className="space-y-2">
             <Label>Ranking</Label>
             <Select value={rankingId} onValueChange={setRankingId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Geral</SelectItem>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {viewerRole === "admin" ? (
+                        <SelectItem value="all">Geral</SelectItem>
+                      ) : null}
                 {rankings.map((ranking) => (
                   <SelectItem key={ranking.id} value={String(ranking.id)}>
                     {ranking.name}

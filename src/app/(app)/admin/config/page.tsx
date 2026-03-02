@@ -32,6 +32,8 @@ type ConfigData = {
   blue_point_closes_at: string | null
   open_challenges_at: string | null
   open_challenges_end_at: string | null
+  allow_general?: boolean
+  allowed_ranking_ids?: number[] | null
 }
 
 const toInputValue = (value: string | Date | null) => {
@@ -71,6 +73,10 @@ export default function AdminConfigPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [allowGeneral, setAllowGeneral] = useState(true)
+  const [allowedRankingIds, setAllowedRankingIds] = useState<number[] | null>(
+    null
+  )
 
   const [rankingId, setRankingId] = useState("general")
   const [initialized, setInitialized] = useState(false)
@@ -103,8 +109,25 @@ export default function AdminConfigPage() {
       return
     }
 
+    const allowGeneralSelection = configResponse.data.allow_general !== false
+    const allowedIds = configResponse.data.allowed_ranking_ids ?? null
+    setAllowGeneral(allowGeneralSelection)
+    setAllowedRankingIds(allowedIds)
+
     if (rankingsResponse.ok) {
-      setRankings(rankingsResponse.data)
+      const nextRankings =
+        allowedIds === null
+          ? rankingsResponse.data
+          : rankingsResponse.data.filter((ranking) => allowedIds.includes(ranking.id))
+      setRankings(nextRankings)
+    }
+
+    if (
+      !allowGeneralSelection &&
+      rankingId === "general" &&
+      configResponse.data.ranking_id
+    ) {
+      setRankingId(String(configResponse.data.ranking_id))
     }
 
     setReferenceMonth(configResponse.data.reference_month ?? "")
@@ -178,6 +201,22 @@ export default function AdminConfigPage() {
     setError(null)
     setSuccess(null)
 
+    if (!allowGeneral && rankingId === "general") {
+      setError("Selecione um ranking para salvar a configuracao.")
+      setSaving(false)
+      return
+    }
+
+    if (
+      allowedRankingIds !== null &&
+      rankingId !== "general" &&
+      !allowedRankingIds.includes(Number(rankingId))
+    ) {
+      setError("Sem permissao para salvar este ranking.")
+      setSaving(false)
+      return
+    }
+
     const payload = {
       ranking_id: rankingId === "general" ? null : Number(rankingId),
       round_opens_at: form.round_opens_at,
@@ -227,7 +266,9 @@ export default function AdminConfigPage() {
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="general">Geral</SelectItem>
+                      {allowGeneral ? (
+                        <SelectItem value="general">Geral</SelectItem>
+                      ) : null}
                       {rankings.map((ranking) => (
                         <SelectItem key={ranking.id} value={String(ranking.id)}>
                           {ranking.name}

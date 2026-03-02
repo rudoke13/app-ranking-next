@@ -34,7 +34,11 @@ export async function GET() {
 
   const allowedRankingIds = await getAllowedRankingIds(session)
   if (allowedRankingIds !== null && allowedRankingIds.length === 0) {
-    return NextResponse.json({ ok: true, data: [] })
+    return NextResponse.json({
+      ok: true,
+      data: [],
+      viewer: { role: session.role, allowedRankingIds },
+    })
   }
 
   const rounds = await db.rounds.findMany({
@@ -64,6 +68,7 @@ export async function GET() {
       openChallengesAt: round.open_challenges_at.toISOString(),
       matchesDeadline: round.matches_deadline.toISOString(),
     })),
+    viewer: { role: session.role, allowedRankingIds },
   })
 }
 
