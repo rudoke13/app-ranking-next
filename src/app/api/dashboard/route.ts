@@ -160,7 +160,7 @@ export async function GET() {
     orderBy: {
       scheduled_for: "desc",
     },
-    take: 24,
+    take: 12,
   })
 
   const receivedChallenges = receivedChallengesRaw
@@ -254,7 +254,7 @@ export async function GET() {
       },
     },
     orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }, { id: "desc" }],
-    take: 50,
+    take: 20,
   })
 
   const recentResults = recentResultsRaw

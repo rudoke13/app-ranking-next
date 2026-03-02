@@ -87,6 +87,12 @@ model challenges {
   @@index([challenger_id])
   @@index([ranking_id])
   @@index([round_id])
+  @@index([ranking_id, status, scheduled_for])
+  @@index([ranking_id, status, played_at])
+  @@index([challenged_id, status, scheduled_for])
+  @@index([challenger_id, status, scheduled_for])
+  @@index([challenged_id, status, played_at])
+  @@index([challenger_id, status, played_at])
 }
 
 model ranking_memberships {
@@ -105,6 +111,9 @@ model ranking_memberships {
 
   @@unique([ranking_id, user_id])
   @@index([user_id])
+  @@index([ranking_id, position])
+  @@index([ranking_id, is_suspended])
+  @@index([ranking_id, is_blue_point, is_suspended])
 }
 
 model collaborator_rankings {
@@ -193,6 +202,8 @@ model rounds {
   @@index([featured_challenged_id])
   @@index([featured_challenger_id])
   @@index([updated_by])
+  @@index([status, ranking_id, reference_month])
+  @@index([reference_month, ranking_id])
 }
 
 model users {
