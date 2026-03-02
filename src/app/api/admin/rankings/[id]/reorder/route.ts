@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
@@ -111,17 +112,26 @@ export async function POST(
       memberships.map((member) => [member.user_id, member])
     )
 
-    const positionsMap: Array<{ membershipId: number; position: number }> = []
+    const positionsMap: Array<{
+      membershipId: number
+      userId: number
+      position: number
+    }> = []
 
     orderedIds.forEach((userId, index) => {
       const member = membershipByUser.get(userId)
       if (!member) return
-      positionsMap.push({ membershipId: member.id, position: index + 1 })
+      positionsMap.push({
+        membershipId: member.id,
+        userId: member.user_id,
+        position: index + 1,
+      })
     })
 
     suspendedMembers.forEach((member, index) => {
       positionsMap.push({
         membershipId: member.id,
+        userId: member.user_id,
         position: orderedIds.length + index + 1,
       })
     })
@@ -129,86 +139,73 @@ export async function POST(
     const referenceMonth = parsed.data.referenceMonth
     const monthStart = referenceMonth ? toMonthStart(referenceMonth) : null
 
-    await db.$transaction(async (tx) => {
-      for (const entry of positionsMap) {
-        await tx.ranking_memberships.update({
-          where: { id: entry.membershipId },
-          data: { position: entry.position },
+    const updateValues = Prisma.join(
+      positionsMap.map(
+        (entry) =>
+          Prisma.sql`(${entry.membershipId}::int, ${entry.position}::int)`
+      )
+    )
+    await db.$executeRaw(
+      Prisma.sql`
+        UPDATE ranking_memberships AS rm
+        SET position = src.position
+        FROM (VALUES ${updateValues}) AS src(id, position)
+        WHERE rm.id = src.id
+      `
+    )
+
+    if (monthStart && !Number.isNaN(monthStart.getTime())) {
+      const uniqueByUser = new Map<number, number>()
+      for (const row of positionsMap) {
+        const current = uniqueByUser.get(row.userId)
+        if (!current || row.position < current) {
+          uniqueByUser.set(row.userId, row.position)
+        }
+      }
+
+      const dedupedSnapshots = Array.from(uniqueByUser.entries()).map(
+        ([userId, position]) => ({
+          ranking_id: rankingId,
+          round_month: monthStart,
+          snapshot_type: "start" as const,
+          user_id: userId,
+          position,
+        })
+      )
+
+      await db.ranking_snapshots.deleteMany({
+        where: {
+          ranking_id: rankingId,
+          round_month: monthStart,
+          snapshot_type: "start",
+        },
+      })
+
+      if (dedupedSnapshots.length) {
+        await db.ranking_snapshots.createMany({
+          data: dedupedSnapshots,
+          skipDuplicates: true,
         })
       }
 
-      if (monthStart && !Number.isNaN(monthStart.getTime())) {
-        const snapshotPositions = positionsMap.map((entry) => {
-          const userId = memberships.find((member) => member.id === entry.membershipId)
-            ?.user_id
-          return userId
-            ? {
-                ranking_id: rankingId,
-                round_month: monthStart,
-                snapshot_type: "start" as const,
-                user_id: userId,
-                position: entry.position,
-              }
-            : null
-        })
-        const snapshotData = snapshotPositions.filter(Boolean) as Array<{
-          ranking_id: number
-          round_month: Date
-          snapshot_type: "start"
-          user_id: number
-          position: number
-        }>
-        const uniqueByUser = new Map<number, number>()
-        for (const row of snapshotData) {
-          const current = uniqueByUser.get(row.user_id)
-          if (!current || row.position < current) {
-            uniqueByUser.set(row.user_id, row.position)
-          }
-        }
-        const dedupedSnapshots = Array.from(uniqueByUser.entries()).map(
-          ([userId, position]) => ({
-            ranking_id: rankingId,
-            round_month: monthStart,
-            snapshot_type: "start" as const,
-            user_id: userId,
-            position,
-          })
-        )
+      await db.round_logs.deleteMany({
+        where: {
+          ranking_id: rankingId,
+          reference_month: monthStart,
+          line_no: MANUAL_ORDER_LOG_LINE,
+          message: MANUAL_ORDER_LOG_MESSAGE,
+        },
+      })
 
-        await tx.ranking_snapshots.deleteMany({
-          where: {
-            ranking_id: rankingId,
-            round_month: monthStart,
-            snapshot_type: "start",
-          },
-        })
-
-        if (dedupedSnapshots.length) {
-          await tx.ranking_snapshots.createMany({
-            data: dedupedSnapshots,
-            skipDuplicates: true,
-          })
-        }
-
-        await tx.round_logs.deleteMany({
-          where: {
-            ranking_id: rankingId,
-            reference_month: monthStart,
-            line_no: MANUAL_ORDER_LOG_LINE,
-            message: MANUAL_ORDER_LOG_MESSAGE,
-          },
-        })
-
-        await tx.round_logs.create({
-          data: {
-            ranking_id: rankingId,
-            reference_month: monthStart,
-            line_no: MANUAL_ORDER_LOG_LINE,
-            message: MANUAL_ORDER_LOG_MESSAGE,
-          },
-        })
-      }
-    })
+      await db.round_logs.create({
+        data: {
+          ranking_id: rankingId,
+          reference_month: monthStart,
+          line_no: MANUAL_ORDER_LOG_LINE,
+          message: MANUAL_ORDER_LOG_MESSAGE,
+        },
+      })
+    }
 
     return NextResponse.json({
       ok: true,
