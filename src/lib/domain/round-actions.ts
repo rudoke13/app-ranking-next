@@ -1,5 +1,6 @@
 import { monthKeyFromDate } from "@/lib/date"
 import { db } from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import {
   rankingConfig,
   getAccessThreshold,
@@ -41,6 +42,52 @@ const shiftMonth = (value: Date | null | undefined, offset: number) => {
 }
 
 type BaselinePositions = Record<number, number>
+
+type MembershipPositionClient = Pick<typeof db, "ranking_memberships" | "$executeRaw">
+
+const normalizeMembershipPositions = (positions: BaselinePositions) => {
+  const byUser = new Map<number, number>()
+
+  for (const [position, userId] of Object.entries(positions)) {
+    const id = Number(userId)
+    const pos = Number(position)
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(pos) || pos <= 0) {
+      continue
+    }
+    const current = byUser.get(id)
+    if (!current || pos < current) {
+      byUser.set(id, pos)
+    }
+  }
+
+  return Array.from(byUser.entries()).map(([userId, position]) => ({
+    userId,
+    position,
+  }))
+}
+
+const applyMembershipPositions = async (
+  client: MembershipPositionClient,
+  rankingId: number,
+  positions: BaselinePositions
+) => {
+  const updates = normalizeMembershipPositions(positions)
+  if (!updates.length) return
+
+  const values = Prisma.join(
+    updates.map((row) => Prisma.sql`(${row.userId}::int, ${row.position}::int)`)
+  )
+
+  await client.$executeRaw(
+    Prisma.sql`
+      UPDATE ranking_memberships AS rm
+      SET position = src.position
+      FROM (VALUES ${values}) AS src(user_id, position)
+      WHERE rm.ranking_id = ${rankingId}
+        AND rm.user_id = src.user_id
+    `
+  )
+}
 
 const fetchSnapshot = async (
   rankingId: number,
@@ -529,12 +576,7 @@ export async function closeRound(
 
     await db.$transaction(async (tx) => {
       if (persistMemberships) {
-        for (const [position, userId] of Object.entries(finalPositions)) {
-          await tx.ranking_memberships.updateMany({
-            where: { ranking_id: rankingId, user_id: Number(userId) },
-            data: { position: Number(position) },
-          })
-        }
+        await applyMembershipPositions(tx, rankingId, finalPositions)
       }
 
       await storeEndSnapshot(tx, rankingId, monthStart, finalPositions)
@@ -719,12 +761,7 @@ export async function closeRound(
 
   await db.$transaction(async (tx) => {
     if (persistMemberships) {
-      for (const [position, userId] of Object.entries(finalPositions)) {
-        await tx.ranking_memberships.updateMany({
-          where: { ranking_id: rankingId, user_id: Number(userId) },
-          data: { position: Number(position) },
-        })
-      }
+      await applyMembershipPositions(tx, rankingId, finalPositions)
     }
 
     await storeEndSnapshot(tx, rankingId, monthStart, finalPositions)
@@ -812,12 +849,7 @@ export async function restoreSnapshot(
 
   if (options?.persistMemberships !== false) {
     await db.$transaction(async (tx) => {
-      for (const [position, userId] of Object.entries(snapshot)) {
-        await tx.ranking_memberships.updateMany({
-          where: { ranking_id: rankingId, user_id: Number(userId) },
-          data: { position: Number(position) },
-        })
-      }
+      await applyMembershipPositions(tx, rankingId, snapshot)
     })
   }
 
