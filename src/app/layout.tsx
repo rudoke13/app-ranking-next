@@ -53,6 +53,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/favicon" />
       </head>
       <body
+        suppressHydrationWarning
         className="min-h-screen bg-background text-foreground antialiased font-sans"
       >
         {children}

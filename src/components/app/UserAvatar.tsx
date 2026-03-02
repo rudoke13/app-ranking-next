@@ -1,3 +1,5 @@
+import Image from "next/image"
+
 import { cn } from "@/lib/utils"
 import { getInitials } from "@/lib/user/initials"
 
@@ -28,7 +30,7 @@ export default function UserAvatar({
   return (
     <div
       className={cn(
-        "flex items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-semibold text-primary",
+        "relative flex items-center justify-center overflow-hidden rounded-full bg-primary/10 text-xs font-semibold text-primary",
         className
       )}
       style={{ width: sizeValue, height: sizeValue }}
@@ -36,7 +38,14 @@ export default function UserAvatar({
       role="img"
     >
       {normalizedSrc ? (
-        <img src={normalizedSrc} alt={name} className="h-full w-full object-cover" />
+        <Image
+          src={normalizedSrc}
+          alt={name}
+          fill
+          unoptimized
+          sizes={typeof size === "number" ? `${size}px` : "100vw"}
+          className="object-cover"
+        />
       ) : (
         <span>{label}</span>
       )}

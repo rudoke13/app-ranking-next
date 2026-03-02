@@ -3,144 +3,145 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model blue_point_history {
-  id         Int                       @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id Int                       @db.UnsignedInt
-  user_id    Int                       @db.UnsignedInt
-  month_key  DateTime                  @db.Date
+  id         Int                       @id @default(autoincrement())
+  ranking_id Int
+  user_id    Int
+  month_key  DateTime
   reason     blue_point_history_reason
-  created_at DateTime?                 @default(now()) @db.Timestamp(0)
-  rankings   rankings                  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_blue_point_ranking")
-  users      users                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_blue_point_user")
+  created_at DateTime?                 @default(now())
+  rankings   rankings                  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([ranking_id, user_id, month_key, reason], map: "uniq_blue_point")
-  @@index([user_id], map: "fk_blue_point_user")
+  @@unique([ranking_id, user_id, month_key, reason])
+  @@index([user_id])
 }
 
 model challenge_events {
-  id           Int                         @id @default(autoincrement()) @db.UnsignedInt
-  challenge_id Int                         @db.UnsignedInt
+  id           Int                         @id @default(autoincrement())
+  challenge_id Int
   event_type   challenge_events_event_type
   payload      Json?
-  created_at   DateTime?                   @default(now()) @db.Timestamp(0)
-  created_by   Int?                        @db.UnsignedInt
-  challenges   challenges                  @relation(fields: [challenge_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_event_challenge")
-  users        users?                      @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_event_user")
+  created_at   DateTime?                   @default(now())
+  created_by   Int?
+  challenges   challenges                  @relation(fields: [challenge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users?                      @relation(fields: [created_by], references: [id], onUpdate: NoAction)
 
-  @@index([challenge_id], map: "fk_event_challenge")
-  @@index([created_by], map: "fk_event_user")
+  @@index([challenge_id])
+  @@index([created_by])
 }
 
 model challenge_penalties {
-  id           Int                            @id @default(autoincrement()) @db.UnsignedInt
-  challenge_id Int                            @db.UnsignedInt
+  id           Int                            @id @default(autoincrement())
+  challenge_id Int
   applies_to   challenge_penalties_applies_to
-  positions    Int                            @db.SmallInt
-  created_at   DateTime?                      @default(now()) @db.Timestamp(0)
-  challenges   challenges                     @relation(fields: [challenge_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_penalty_challenge")
+  positions    Int
+  created_at   DateTime?                      @default(now())
+  challenges   challenges                     @relation(fields: [challenge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([challenge_id], map: "fk_penalty_challenge")
+  @@index([challenge_id])
 }
 
 model challenges {
-  id                                    Int                   @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id                            Int                   @db.UnsignedInt
-  challenger_id                         Int                   @db.UnsignedInt
-  challenged_id                         Int                   @db.UnsignedInt
-  scheduled_for                         DateTime              @db.DateTime(0)
-  accepted_at                           DateTime?             @db.DateTime(0)
-  declined_at                           DateTime?             @db.DateTime(0)
-  decline_reason                        String?               @db.VarChar(255)
-  played_at                             DateTime?             @db.DateTime(0)
-  result_reported_at                    DateTime?             @db.DateTime(0)
-  challenger_games                      Int?                  @db.TinyInt
-  challenged_games                      Int?                  @db.TinyInt
-  challenger_tiebreak                   Int?                  @db.TinyInt
-  challenged_tiebreak                   Int?                  @db.TinyInt
+  id                                    Int                   @id @default(autoincrement())
+  ranking_id                            Int
+  challenger_id                         Int
+  challenged_id                         Int
+  scheduled_for                         DateTime
+  accepted_at                           DateTime?
+  declined_at                           DateTime?
+  decline_reason                        String?
+  played_at                             DateTime?
+  result_reported_at                    DateTime?
+  challenger_games                      Int?
+  challenged_games                      Int?
+  challenger_tiebreak                   Int?
+  challenged_tiebreak                   Int?
   challenger_walkover                   Boolean?              @default(false)
   challenged_walkover                   Boolean?              @default(false)
   challenger_retired                    Boolean?              @default(false)
   challenged_retired                    Boolean?              @default(false)
-  challenger_position_at_challenge      Int?                  @db.UnsignedInt
-  challenged_position_at_challenge      Int?                  @db.UnsignedInt
+  challenger_position_at_challenge      Int?
+  challenged_position_at_challenge      Int?
   winner                                challenges_winner?
-  notes                                 String?               @db.Text
+  notes                                 String?
   penalty_summary                       Json?
   cancelled_by_admin                    Boolean               @default(false)
   status                                challenges_status     @default(scheduled)
-  round_id                              Int?                  @db.UnsignedInt
-  created_at                            DateTime?             @default(now()) @db.Timestamp(0)
-  updated_at                            DateTime?             @db.Timestamp(0)
+  round_id                              Int?
+  created_at                            DateTime?             @default(now())
+  updated_at                            DateTime?
   challenge_events                      challenge_events[]
   challenge_penalties                   challenge_penalties[]
-  users_challenges_challenged_idTousers users                 @relation("challenges_challenged_idTousers", fields: [challenged_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_challenge_challenged")
-  users_challenges_challenger_idTousers users                 @relation("challenges_challenger_idTousers", fields: [challenger_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_challenge_challenger")
-  rankings                              rankings              @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_challenge_ranking")
-  rounds                                rounds?               @relation(fields: [round_id], references: [id], onUpdate: NoAction, map: "fk_challenge_round")
+  users_challenges_challenged_idTousers users                 @relation("challenges_challenged_idTousers", fields: [challenged_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_challenges_challenger_idTousers users                 @relation("challenges_challenger_idTousers", fields: [challenger_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rankings                              rankings              @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rounds                                rounds?               @relation(fields: [round_id], references: [id], onUpdate: NoAction)
 
-  @@index([challenged_id], map: "fk_challenge_challenged")
-  @@index([challenger_id], map: "fk_challenge_challenger")
-  @@index([ranking_id], map: "fk_challenge_ranking")
-  @@index([round_id], map: "fk_challenge_round")
+  @@index([challenged_id])
+  @@index([challenger_id])
+  @@index([ranking_id])
+  @@index([round_id])
 }
 
 model ranking_memberships {
-  id                  Int      @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id          Int      @db.UnsignedInt
-  user_id             Int      @db.UnsignedInt
-  position            Int?     @db.UnsignedInt
+  id                  Int      @id @default(autoincrement())
+  ranking_id          Int
+  user_id             Int
+  position            Int?
   points              Int?     @default(0)
   is_blue_point       Boolean? @default(false)
   is_access_challenge Boolean  @default(false)
   is_locked           Boolean? @default(false)
   is_suspended        Boolean? @default(false)
-  license_position    Int?     @db.UnsignedInt
-  rankings            rankings @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_membership_ranking")
-  users               users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_membership_user")
+  license_position    Int?
+  rankings            rankings @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users               users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([ranking_id, user_id], map: "uniq_ranking_user")
-  @@index([user_id], map: "fk_membership_user")
+  @@unique([ranking_id, user_id])
+  @@index([user_id])
 }
 
 model collaborator_rankings {
-  id         Int       @id @default(autoincrement()) @db.UnsignedInt
-  user_id    Int       @db.UnsignedInt
-  ranking_id Int       @db.UnsignedInt
-  created_at DateTime? @default(now()) @db.Timestamp(0)
-  rankings   rankings  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_collab_ranking")
-  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_collab_user")
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  ranking_id Int
+  created_at DateTime? @default(now())
+  rankings   rankings  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([user_id, ranking_id], map: "uniq_collab_ranking")
-  @@index([ranking_id], map: "fk_collab_ranking")
+  @@unique([user_id, ranking_id])
+  @@index([ranking_id])
 }
 
 model ranking_snapshots {
-  id            Int                             @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id    Int                             @db.UnsignedInt
-  round_month   DateTime                        @db.Date
+  id            Int                             @id @default(autoincrement())
+  ranking_id    Int
+  round_month   DateTime
   snapshot_type ranking_snapshots_snapshot_type @default(start)
-  user_id       Int                             @db.UnsignedInt
-  position      Int                             @db.UnsignedInt
-  created_at    DateTime?                       @default(now()) @db.Timestamp(0)
-  rankings      rankings                        @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_snapshot_ranking")
-  users         users                           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_snapshot_user")
+  user_id       Int
+  position      Int
+  created_at    DateTime?                       @default(now())
+  rankings      rankings                        @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users         users                           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([ranking_id, round_month, snapshot_type, user_id], map: "uniq_snapshot")
-  @@index([user_id], map: "fk_snapshot_user")
-  @@index([ranking_id, round_month, snapshot_type], map: "idx_snapshot_month")
+  @@unique([ranking_id, round_month, snapshot_type, user_id])
+  @@index([user_id])
+  @@index([ranking_id, round_month, snapshot_type])
 }
 
 model rankings {
-  id                  Int                   @id @default(autoincrement()) @db.UnsignedInt
-  name                String                @db.VarChar(120)
-  slug                String                @unique(map: "slug") @db.VarChar(120)
-  description         String?               @db.Text
+  id                  Int                   @id @default(autoincrement())
+  name                String
+  slug                String                @unique
+  description         String?
   is_active           Boolean               @default(true)
-  created_at          DateTime?             @default(now()) @db.Timestamp(0)
+  created_at          DateTime?             @default(now())
   blue_point_history  blue_point_history[]
   challenges          challenges[]
   collaborator_rankings collaborator_rankings[]
@@ -151,67 +152,67 @@ model rankings {
 }
 
 model round_logs {
-  id              Int       @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id      Int       @db.UnsignedInt
-  reference_month DateTime  @db.Date
-  line_no         Int       @db.UnsignedInt
-  message         String    @db.Text
-  created_at      DateTime? @default(now()) @db.Timestamp(0)
-  rankings        rankings  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_round_logs_ranking")
+  id              Int       @id @default(autoincrement())
+  ranking_id      Int
+  reference_month DateTime
+  line_no         Int
+  message         String
+  created_at      DateTime? @default(now())
+  rankings        rankings  @relation(fields: [ranking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@index([ranking_id, reference_month], map: "idx_round_logs")
+  @@index([ranking_id, reference_month])
 }
 
 model rounds {
-  id                                         Int           @id @default(autoincrement()) @db.UnsignedInt
-  ranking_id                                 Int?          @db.UnsignedInt
-  title                                      String        @db.VarChar(150)
-  reference_month                            DateTime      @db.Date
-  round_opens_at                             DateTime?     @db.DateTime(0)
-  blue_point_opens_at                        DateTime      @db.DateTime(0)
-  blue_point_closes_at                       DateTime?     @db.DateTime(0)
-  open_challenges_at                         DateTime      @db.DateTime(0)
-  open_challenges_end_at                     DateTime?     @db.DateTime(0)
-  matches_deadline                           DateTime      @db.DateTime(0)
-  featured_challenger_id                     Int?          @db.UnsignedInt
-  featured_challenged_id                     Int?          @db.UnsignedInt
-  featured_match_at                          DateTime?     @db.DateTime(0)
-  featured_result                            String?       @db.VarChar(100)
-  updated_by                                 Int?          @db.UnsignedInt
-  created_at                                 DateTime?     @default(now()) @db.Timestamp(0)
-  updated_at                                 DateTime?     @db.Timestamp(0)
+  id                                         Int           @id @default(autoincrement())
+  ranking_id                                 Int?
+  title                                      String
+  reference_month                            DateTime
+  round_opens_at                             DateTime?
+  blue_point_opens_at                        DateTime
+  blue_point_closes_at                       DateTime?
+  open_challenges_at                         DateTime
+  open_challenges_end_at                     DateTime?
+  matches_deadline                           DateTime
+  featured_challenger_id                     Int?
+  featured_challenged_id                     Int?
+  featured_match_at                          DateTime?
+  featured_result                            String?
+  updated_by                                 Int?
+  created_at                                 DateTime?     @default(now())
+  updated_at                                 DateTime?
   status                                     rounds_status @default(open)
-  closed_at                                  DateTime?     @db.DateTime(0)
+  closed_at                                  DateTime?
   challenges                                 challenges[]
-  rankings                                   rankings?     @relation(fields: [ranking_id], references: [id], onUpdate: NoAction, map: "fk_round_ranking")
-  users_rounds_featured_challenged_idTousers users?        @relation("rounds_featured_challenged_idTousers", fields: [featured_challenged_id], references: [id], onUpdate: NoAction, map: "fk_round_user_challenged")
-  users_rounds_featured_challenger_idTousers users?        @relation("rounds_featured_challenger_idTousers", fields: [featured_challenger_id], references: [id], onUpdate: NoAction, map: "fk_round_user_challenger")
-  users_rounds_updated_byTousers             users?        @relation("rounds_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction, map: "fk_round_user_updater")
+  rankings                                   rankings?     @relation(fields: [ranking_id], references: [id], onUpdate: NoAction)
+  users_rounds_featured_challenged_idTousers users?        @relation("rounds_featured_challenged_idTousers", fields: [featured_challenged_id], references: [id], onUpdate: NoAction)
+  users_rounds_featured_challenger_idTousers users?        @relation("rounds_featured_challenger_idTousers", fields: [featured_challenger_id], references: [id], onUpdate: NoAction)
+  users_rounds_updated_byTousers             users?        @relation("rounds_updated_byTousers", fields: [updated_by], references: [id], onUpdate: NoAction)
 
-  @@index([ranking_id], map: "fk_round_ranking")
-  @@index([featured_challenged_id], map: "fk_round_user_challenged")
-  @@index([featured_challenger_id], map: "fk_round_user_challenger")
-  @@index([updated_by], map: "fk_round_user_updater")
+  @@index([ranking_id])
+  @@index([featured_challenged_id])
+  @@index([featured_challenger_id])
+  @@index([updated_by])
 }
 
 model users {
-  id                                          Int                   @id @default(autoincrement()) @db.UnsignedInt
+  id                                          Int                   @id @default(autoincrement())
   role                                        users_role            @default(player)
   gender                                      users_gender?
-  first_name                                  String                @db.VarChar(100)
-  last_name                                   String                @db.VarChar(100)
-  nickname                                    String?               @db.VarChar(100)
-  email                                       String                @unique(map: "email") @db.VarChar(190)
-  phone                                       String?               @db.VarChar(30)
-  birth_date                                  DateTime?             @db.Date
-  password_hash                               String                @db.VarChar(255)
+  first_name                                  String
+  last_name                                   String
+  nickname                                    String?
+  email                                       String                @unique
+  phone                                       String?
+  birth_date                                  DateTime?
+  password_hash                               String
   must_reset_password                         Boolean               @default(false)
-  password_reset_token                        String?               @db.VarChar(128)
-  password_reset_expires_at                   DateTime?             @db.DateTime(0)
-  sessionToken                                String?               @map("session_token") @db.VarChar(64)
-  avatarUrl                                   String?               @map("avatar_path") @db.VarChar(255)
-  created_at                                  DateTime?             @default(now()) @db.Timestamp(0)
-  updated_at                                  DateTime?             @db.Timestamp(0)
+  password_reset_token                        String?
+  password_reset_expires_at                   DateTime?
+  sessionToken                                String?               @map("session_token")
+  avatarUrl                                   String?               @map("avatar_path")
+  created_at                                  DateTime?             @default(now())
+  updated_at                                  DateTime?
   blue_point_history                          blue_point_history[]
   challenge_events                            challenge_events[]
   challenges_challenges_challenged_idTousers  challenges[]          @relation("challenges_challenged_idTousers")
@@ -226,18 +227,18 @@ model users {
 }
 
 model app_settings {
-  id                   Int       @id @default(autoincrement()) @db.UnsignedInt
-  app_name             String?   @db.VarChar(150)
-  logo_url             String?   @db.VarChar(255)
-  favicon_url          String?   @db.VarChar(255)
-  pwa_icon_url         String?   @db.VarChar(255)
+  id                   Int       @id @default(autoincrement())
+  app_name             String?
+  logo_url             String?
+  favicon_url          String?
+  pwa_icon_url         String?
   maintenance_enabled  Boolean   @default(false)
-  maintenance_message  String?   @db.Text
-  updated_at           DateTime? @default(now()) @db.Timestamp(0)
-  updated_by           Int?      @db.UnsignedInt
-  users                users?    @relation("app_settings_user", fields: [updated_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_app_settings_user")
+  maintenance_message  String?
+  updated_at           DateTime? @default(now())
+  updated_by           Int?
+  users                users?    @relation("app_settings_user", fields: [updated_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
-  @@index([updated_by], map: "fk_app_settings_user")
+  @@index([updated_by])
 }
 
 enum users_role {

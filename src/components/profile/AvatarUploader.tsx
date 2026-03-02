@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
@@ -139,12 +140,15 @@ export default function AvatarUploader({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-4">
-        <div className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-lg font-semibold text-primary">
+        <div className="relative flex size-16 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-lg font-semibold text-primary">
           {displayUrl ? (
-            <img
+            <Image
               src={displayUrl}
               alt={name}
-              className="h-full w-full object-cover"
+              fill
+              unoptimized
+              sizes="64px"
+              className="object-cover"
             />
           ) : (
             <span>{label}</span>

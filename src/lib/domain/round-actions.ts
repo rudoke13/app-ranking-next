@@ -10,6 +10,7 @@ import {
   MANUAL_ORDER_LOG_LINE,
   MANUAL_ORDER_LOG_MESSAGE,
 } from "@/lib/domain/round-overrides"
+import { resolveChallengeWinner } from "@/lib/challenges/result"
 import {
   atualizarRanking,
   type RankingRoundEvent,
@@ -583,6 +584,8 @@ export async function closeRound(
       challenger_id: true,
       challenged_id: true,
       winner: true,
+      challenger_games: true,
+      challenged_games: true,
       challenger_walkover: true,
       challenged_walkover: true,
       played_at: true,
@@ -614,12 +617,21 @@ export async function closeRound(
   const events: RankingRoundEvent[] = challenges.map((challenge, index) => {
     const challengerWo = Boolean(challenge.challenger_walkover)
     const challengedWo = Boolean(challenge.challenged_walkover)
+    const resolvedWinner = resolveChallengeWinner({
+      winner: challenge.winner,
+      challenger_games: challenge.challenger_games,
+      challenged_games: challenge.challenged_games,
+      challenger_walkover: challenge.challenger_walkover,
+      challenged_walkover: challenge.challenged_walkover,
+    })
     const result: RankingRoundEvent["result"] =
       challengerWo && challengedWo
         ? "double_wo"
-        : challenge.winner === "challenger"
+        : resolvedWinner === "challenger"
         ? "challenger_win"
-        : "challenger_loss"
+        : resolvedWinner === "challenged"
+        ? "challenger_loss"
+        : "double_wo"
 
     const challengerMember = membersById.get(challenge.challenger_id)
 

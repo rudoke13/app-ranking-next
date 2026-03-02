@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import Image from "next/image"
 
 import SectionTitle from "@/components/app/SectionTitle"
 import { Badge } from "@/components/ui/badge"
@@ -333,12 +334,15 @@ export default function AdminConfiguracoesPage() {
     return (
       <div className="flex flex-col gap-3 rounded-xl border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex size-16 items-center justify-center overflow-hidden rounded-lg border bg-background">
+          <div className="relative flex size-16 items-center justify-center overflow-hidden rounded-lg border bg-background">
             {currentUrl ? (
-              <img
+              <Image
                 src={currentUrl}
                 alt={meta.label}
-                className="h-full w-full object-cover"
+                fill
+                unoptimized
+                sizes="64px"
+                className="object-cover"
               />
             ) : (
               <span className="text-xs text-muted-foreground">Sem imagem</span>

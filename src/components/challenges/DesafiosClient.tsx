@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPost } from "@/lib/http"
+import { resolveChallengeWinner } from "@/lib/challenges/result"
 import {
   formatMonthYearInAppTz,
   nowInAppTimeZone,
@@ -161,11 +162,18 @@ export default function DesafiosClient({
       }
       if (challenge.status !== "completed") return
       games += 1
-      if (!challenge.winner) return
+      const winner = resolveChallengeWinner({
+        winner: challenge.winner,
+        challengerGames: challenge.challengerGames,
+        challengedGames: challenge.challengedGames,
+        challengerWalkover: challenge.challengerWalkover,
+        challengedWalkover: challenge.challengedWalkover,
+      })
+      if (!winner) return
 
-      if (challenge.winner === "challenger") {
+      if (winner === "challenger") {
         wins += 1
-      } else if (challenge.winner === "challenged") {
+      } else if (winner === "challenged") {
         losses += 1
       }
     })

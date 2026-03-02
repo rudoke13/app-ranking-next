@@ -15,6 +15,7 @@ Este guia prepara o projeto para deploy em producao no Coolify usando Dockerfile
 ### Variaveis obrigatorias
 ```
 DATABASE_URL=
+DIRECT_URL=
 JWT_SECRET=
 S3_ENDPOINT=
 S3_REGION=
@@ -26,16 +27,17 @@ S3_FORCE_PATH_STYLE=true
 NEXT_PUBLIC_APP_NAME="Ranking Tenis TCC"
 ```
 
-## C) MySQL (Coolify Database)
-1) Crie um banco MySQL no Coolify.
-2) Anote HOST, USER, PASSWORD e DB.
-3) Monte a DATABASE_URL:
+## C) Supabase (PostgreSQL)
+1) Crie um projeto no Supabase.
+2) Copie as strings de conexao:
+- Transaction pooler (porta 6543): uso da aplicacao
+- Direct connection (porta 5432): uso de migration/introspection
+3) Configure variaveis no app:
 ```
-mysql://USER:PASSWORD@HOST:3306/DBNAME
+DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-us-west-2.pooler.supabase.com:6543/postgres?schema=ranking_tcc&sslmode=require&pgbouncer=true
+DIRECT_URL=postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?schema=ranking_tcc&sslmode=require
 ```
-4) Importe o dump do legado:
-- Gere o dump no ambiente antigo
-- Importe no banco do Coolify (via UI ou CLI)
+4) Migre o schema/dados para o schema `ranking_tcc` e valide contagens antes da virada.
 
 ## D) MinIO (Coolify Service)
 1) Crie o servico MinIO no Coolify.
@@ -77,7 +79,7 @@ npm run prisma:migrate:deploy
 
 ## G) Rollback
 - Use "Redeploy previous image" no Coolify.
-- Mantenha backups do MySQL (dump periodico).
+- Mantenha backups do PostgreSQL/Supabase (dump periodico).
 - Mantenha backup do volume do MinIO.
 
 ## Notas de build

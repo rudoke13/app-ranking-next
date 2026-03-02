@@ -14,6 +14,7 @@ import {
 import { getAccessThreshold, maxPositionsUp } from "@/lib/domain/ranking"
 import { db } from "@/lib/db"
 import { canManageRanking } from "@/lib/domain/collaborator-access"
+import { resolveChallengeWinner } from "@/lib/challenges/result"
 
 const monthSchema = z
   .string()
@@ -182,6 +183,10 @@ export async function GET(
         challenged_id: true,
         status: true,
         winner: true,
+        challenger_games: true,
+        challenged_games: true,
+        challenger_walkover: true,
+        challenged_walkover: true,
         played_at: true,
         scheduled_for: true,
         created_at: true,
@@ -293,7 +298,13 @@ export async function GET(
   for (const item of sortedChallenges) {
     const row = item.challenge
     const status = row.status
-    const winner = row.winner
+    const winner = resolveChallengeWinner({
+      winner: row.winner,
+      challenger_games: row.challenger_games,
+      challenged_games: row.challenged_games,
+      challenger_walkover: row.challenger_walkover,
+      challenged_walkover: row.challenged_walkover,
+    })
 
     const challengerId = row.challenger_id
     const challengedId = row.challenged_id

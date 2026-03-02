@@ -3,6 +3,11 @@ import { NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { monthKeyFromDate } from "@/lib/date"
 import { db } from "@/lib/db"
+import {
+  resolveChallengeResultForUser,
+  resolveChallengeStatus,
+  resolveChallengeWinner,
+} from "@/lib/challenges/result"
 
 const formatName = (first?: string | null, last?: string | null, nickname?: string | null) => {
   const full = `${first ?? ""} ${last ?? ""}`.trim()
@@ -72,6 +77,7 @@ export async function GET() {
           db.challenges.count({
             where: {
               ranking_id: membership.ranking_id,
+              status: { not: "cancelled" },
               scheduled_for: {
                 gte: monthStart,
                 lt: nextMonth,
@@ -132,14 +138,20 @@ export async function GET() {
     (membership) => membership.license_position === null
   )
 
-  const receivedChallenges = await db.challenges.findMany({
+  const receivedChallengesRaw = await db.challenges.findMany({
     where: {
       challenged_id: userId,
-      status: { in: ["scheduled", "accepted", "declined"] },
+      status: { not: "cancelled" },
     },
     select: {
       id: true,
       status: true,
+      winner: true,
+      played_at: true,
+      challenger_games: true,
+      challenged_games: true,
+      challenger_walkover: true,
+      challenged_walkover: true,
       scheduled_for: true,
       users_challenges_challenger_idTousers: {
         select: { first_name: true, last_name: true, nickname: true },
@@ -148,8 +160,29 @@ export async function GET() {
     orderBy: {
       scheduled_for: "desc",
     },
-    take: 3,
+    take: 24,
   })
+
+  const receivedChallenges = receivedChallengesRaw
+    .map((challenge) => ({
+      ...challenge,
+      normalized_status: resolveChallengeStatus({
+        status: challenge.status,
+        winner: challenge.winner,
+        played_at: challenge.played_at,
+        challenger_games: challenge.challenger_games,
+        challenged_games: challenge.challenged_games,
+        challenger_walkover: challenge.challenger_walkover,
+        challenged_walkover: challenge.challenged_walkover,
+      }),
+    }))
+    .filter(
+      (challenge) =>
+        challenge.normalized_status === "scheduled" ||
+        challenge.normalized_status === "accepted" ||
+        challenge.normalized_status === "declined"
+    )
+    .slice(0, 3)
 
   const myChallenges = await db.challenges.findMany({
     where: {
@@ -159,6 +192,12 @@ export async function GET() {
     select: {
       id: true,
       status: true,
+      winner: true,
+      played_at: true,
+      challenger_games: true,
+      challenged_games: true,
+      challenger_walkover: true,
+      challenged_walkover: true,
       scheduled_for: true,
       challenger_id: true,
       challenged_id: true,
@@ -174,16 +213,31 @@ export async function GET() {
     take: 10,
   })
 
-  const recentResults = await db.challenges.findMany({
+  const recentResultsRaw = await db.challenges.findMany({
     where: {
-      OR: [{ challenger_id: userId }, { challenged_id: userId }],
-      status: "completed",
+      AND: [
+        {
+          OR: [{ challenger_id: userId }, { challenged_id: userId }],
+        },
+        {
+          OR: [
+            { status: "completed" },
+            { winner: { not: null } },
+            { played_at: { not: null } },
+            { challenger_games: { not: null } },
+            { challenged_games: { not: null } },
+            { challenger_walkover: true },
+            { challenged_walkover: true },
+          ],
+        },
+      ],
     },
     select: {
       id: true,
       status: true,
       winner: true,
       played_at: true,
+      scheduled_for: true,
       challenger_id: true,
       challenged_id: true,
       challenger_games: true,
@@ -199,9 +253,24 @@ export async function GET() {
         select: { first_name: true, last_name: true, nickname: true },
       },
     },
-    orderBy: { played_at: "desc" },
-    take: 3,
+    orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }, { id: "desc" }],
+    take: 50,
   })
+
+  const recentResults = recentResultsRaw
+    .slice()
+    .sort((a, b) => {
+      const timeA =
+        a.played_at?.getTime() ??
+        a.scheduled_for.getTime() ??
+        a.id
+      const timeB =
+        b.played_at?.getTime() ??
+        b.scheduled_for.getTime() ??
+        b.id
+      return timeB - timeA
+    })
+    .slice(0, 9)
 
   return NextResponse.json({
     ok: true,
@@ -255,7 +324,7 @@ export async function GET() {
       })),
       received: receivedChallenges.map((challenge) => ({
         id: challenge.id,
-        status: challenge.status,
+        status: challenge.normalized_status,
         scheduledFor: challenge.scheduled_for.toISOString(),
         opponent: formatName(
           challenge.users_challenges_challenger_idTousers.first_name,
@@ -265,7 +334,15 @@ export async function GET() {
       })),
       myChallenges: myChallenges.map((challenge) => ({
         id: challenge.id,
-        status: challenge.status,
+        status: resolveChallengeStatus({
+          status: challenge.status,
+          winner: challenge.winner,
+          played_at: challenge.played_at,
+          challenger_games: challenge.challenger_games,
+          challenged_games: challenge.challenged_games,
+          challenger_walkover: challenge.challenger_walkover,
+          challenged_walkover: challenge.challenged_walkover,
+        }),
         scheduledFor: challenge.scheduled_for.toISOString(),
         ranking: challenge.rankings.name,
         isChallenger: challenge.challenger_id === userId,
@@ -289,19 +366,25 @@ export async function GET() {
         },
       })),
       recentResults: recentResults.map((challenge) => ({
+        winner: resolveChallengeWinner({
+          winner: challenge.winner,
+          challenger_games: challenge.challenger_games,
+          challenged_games: challenge.challenged_games,
+          challenger_walkover: challenge.challenger_walkover,
+          challenged_walkover: challenge.challenged_walkover,
+        }),
         id: challenge.id,
-        winner: challenge.winner,
         playedAt: challenge.played_at?.toISOString() ?? null,
-        result:
-          challenge.winner === null
-            ? "pending"
-            : challenge.winner === "challenger"
-            ? challenge.challenger_id === userId
-              ? "win"
-              : "loss"
-            : challenge.challenged_id === userId
-            ? "win"
-            : "loss",
+        result: resolveChallengeResultForUser({
+          userId,
+          challengerId: challenge.challenger_id,
+          challengedId: challenge.challenged_id,
+          winner: challenge.winner,
+          challenger_games: challenge.challenger_games,
+          challenged_games: challenge.challenged_games,
+          challenger_walkover: challenge.challenger_walkover,
+          challenged_walkover: challenge.challenged_walkover,
+        }),
         challenger: {
           id: challenge.challenger_id,
           name: formatName(
