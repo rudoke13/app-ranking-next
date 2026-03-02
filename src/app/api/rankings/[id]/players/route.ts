@@ -14,7 +14,10 @@ import {
 import { getAccessThreshold, maxPositionsUp } from "@/lib/domain/ranking"
 import { db } from "@/lib/db"
 import { canManageRanking } from "@/lib/domain/collaborator-access"
-import { resolveChallengeWinner } from "@/lib/challenges/result"
+import {
+  resolveChallengeStatus,
+  resolveChallengeWinner,
+} from "@/lib/challenges/result"
 
 const monthSchema = z
   .string()
@@ -162,10 +165,21 @@ export async function GET(
         OR: [
           {
             status: "completed",
-            played_at: {
-              gte: monthStart,
-              lt: nextMonth,
-            },
+            OR: [
+              {
+                played_at: {
+                  gte: monthStart,
+                  lt: nextMonth,
+                },
+              },
+              {
+                played_at: null,
+                scheduled_for: {
+                  gte: monthStart,
+                  lt: nextMonth,
+                },
+              },
+            ],
           },
           {
             status: { in: ["scheduled", "accepted"] },
@@ -212,12 +226,18 @@ export async function GET(
     db.challenges.findMany({
       where: {
         ranking_id: rankingId,
-        status: "completed",
-        played_at: { not: null },
+        OR: [
+          { status: "completed" },
+          { winner: { not: null } },
+          { played_at: { not: null } },
+          { challenger_games: { not: null } },
+          { challenged_games: { not: null } },
+          { challenger_walkover: true },
+          { challenged_walkover: true },
+        ],
       },
-      distinct: ["played_at"],
-      select: { played_at: true },
-      orderBy: { played_at: "desc" },
+      select: { played_at: true, scheduled_for: true },
+      orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }],
       take: 24,
     }),
     shouldUseSnapshot
@@ -257,6 +277,10 @@ export async function GET(
   playedMonths.forEach((row) => {
     if (row.played_at) {
       monthSet.add(monthValueUtc(row.played_at))
+      return
+    }
+    if (row.scheduled_for) {
+      monthSet.add(monthValueUtc(row.scheduled_for))
     }
   })
   if (openMonthValue) {
@@ -297,7 +321,15 @@ export async function GET(
 
   for (const item of sortedChallenges) {
     const row = item.challenge
-    const status = row.status
+    const status = resolveChallengeStatus({
+      status: row.status,
+      winner: row.winner,
+      played_at: row.played_at,
+      challenger_games: row.challenger_games,
+      challenged_games: row.challenged_games,
+      challenger_walkover: row.challenger_walkover,
+      challenged_walkover: row.challenged_walkover,
+    })
     const winner = resolveChallengeWinner({
       winner: row.winner,
       challenger_games: row.challenger_games,

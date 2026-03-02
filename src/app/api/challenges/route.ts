@@ -562,10 +562,21 @@ export async function POST(request: Request) {
               OR: [
                 {
                   status: "completed",
-                  played_at: {
-                    gte: monthStart,
-                    lt: monthEnd,
-                  },
+                  OR: [
+                    {
+                      played_at: {
+                        gte: monthStart,
+                        lt: monthEnd,
+                      },
+                    },
+                    {
+                      played_at: null,
+                      scheduled_for: {
+                        gte: monthStart,
+                        lt: monthEnd,
+                      },
+                    },
+                  ],
                 },
                 {
                   status: { in: ["scheduled", "accepted"] },
@@ -589,10 +600,21 @@ export async function POST(request: Request) {
           OR: [
             {
               status: "completed",
-              played_at: {
-                gte: monthStart,
-                lt: monthEnd,
-              },
+              OR: [
+                {
+                  played_at: {
+                    gte: monthStart,
+                    lt: monthEnd,
+                  },
+                },
+                {
+                  played_at: null,
+                  scheduled_for: {
+                    gte: monthStart,
+                    lt: monthEnd,
+                  },
+                },
+              ],
             },
             {
               status: { in: ["scheduled", "accepted"] },

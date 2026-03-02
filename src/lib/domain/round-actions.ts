@@ -249,7 +249,15 @@ const evaluateBluePoints = async (
       OR: [
         {
           status: "completed",
-          played_at: { gte: start, lt: end },
+          OR: [
+            {
+              played_at: { gte: start, lt: end },
+            },
+            {
+              played_at: null,
+              scheduled_for: { gte: start, lt: end },
+            },
+          ],
         },
         {
           status: { in: ["scheduled", "accepted"] },
@@ -281,7 +289,15 @@ const evaluateBluePoints = async (
           ranking_id: rankingId,
           challenged_id: userId,
           status: "completed",
-          played_at: { gte: start, lt: end },
+          OR: [
+            {
+              played_at: { gte: start, lt: end },
+            },
+            {
+              played_at: null,
+              scheduled_for: { gte: start, lt: end },
+            },
+          ],
         },
       })
       if (count < 1) {
@@ -576,9 +592,17 @@ export async function closeRound(
     where: {
       ranking_id: rankingId,
       status: "completed",
-      played_at: { gte: start, lt: end },
+      OR: [
+        {
+          played_at: { gte: start, lt: end },
+        },
+        {
+          played_at: null,
+          scheduled_for: { gte: start, lt: end },
+        },
+      ],
     },
-    orderBy: [{ played_at: "asc" }, { id: "asc" }],
+    orderBy: [{ played_at: "asc" }, { scheduled_for: "asc" }, { id: "asc" }],
     select: {
       id: true,
       challenger_id: true,
@@ -589,6 +613,7 @@ export async function closeRound(
       challenger_walkover: true,
       challenged_walkover: true,
       played_at: true,
+      scheduled_for: true,
       challenger_position_at_challenge: true,
       challenged_position_at_challenge: true,
     },
