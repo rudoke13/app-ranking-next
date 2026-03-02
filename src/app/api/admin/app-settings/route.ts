@@ -145,7 +145,7 @@ export async function PATCH(request: Request) {
           },
         })
 
-    revalidateTag("app-branding")
+    revalidateTag("app-branding", "max")
 
     return NextResponse.json({ ok: true, data: toPayload(settings) })
   } catch (error) {
