@@ -4,7 +4,7 @@ import { z } from "zod"
 import bcrypt from "bcryptjs"
 
 import { signSession } from "@/lib/auth/jwt"
-import { setSessionCookie } from "@/lib/auth/session"
+import { primeSessionTokenCache, setSessionCookie } from "@/lib/auth/session"
 import type { Role, SessionPayload } from "@/lib/auth/types"
 import { db } from "@/lib/db"
 
@@ -14,24 +14,54 @@ const loginSchema = z.object({
 })
 
 export async function POST(request: Request) {
+  const startedAt = performance.now()
   const body = await request.json().catch(() => null)
   const parsed = loginSchema.safeParse(body)
 
+  const buildTimingHeader = (timings: Array<[string, number]>) =>
+    timings.map(([name, duration]) => `${name};dur=${duration.toFixed(1)}`).join(", ")
+
   if (!parsed.success) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: false, message: "Dados inválidos" },
       { status: 400 }
     )
+    response.headers.set(
+      "Server-Timing",
+      buildTimingHeader([["total", performance.now() - startedAt]])
+    )
+    return response
   }
 
   const email = parsed.data.email.trim().toLowerCase()
-  const user = await db.users.findUnique({ where: { email } })
+  const findUserStartedAt = performance.now()
+  const user = await db.users.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      password_hash: true,
+      role: true,
+      nickname: true,
+      first_name: true,
+      last_name: true,
+    },
+  })
+  const findUserMs = performance.now() - findUserStartedAt
 
   if (!user) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: false, message: "Credenciais inválidas" },
       { status: 401 }
     )
+    response.headers.set(
+      "Server-Timing",
+      buildTimingHeader([
+        ["db_user", findUserMs],
+        ["total", performance.now() - startedAt],
+      ])
+    )
+    return response
   }
 
   const storedHash = user.password_hash
@@ -49,10 +79,18 @@ export async function POST(request: Request) {
     : parsed.data.password === storedHash
 
   if (!passwordMatches) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: false, message: "Credenciais inválidas" },
       { status: 401 }
     )
+    response.headers.set(
+      "Server-Timing",
+      buildTimingHeader([
+        ["db_user", findUserMs],
+        ["total", performance.now() - startedAt],
+      ])
+    )
+    return response
   }
 
   const role: Role =
@@ -66,10 +104,13 @@ export async function POST(request: Request) {
     : `${user.first_name} ${user.last_name}`.trim()
 
   const sessionToken = randomBytes(32).toString("hex")
+  const updateTokenStartedAt = performance.now()
   await db.users.update({
     where: { id: user.id },
     data: { sessionToken },
   })
+  const updateTokenMs = performance.now() - updateTokenStartedAt
+  primeSessionTokenCache(user.id, sessionToken)
 
   const session: SessionPayload = {
     userId: String(user.id),
@@ -86,6 +127,14 @@ export async function POST(request: Request) {
   })
 
   setSessionCookie(response, token)
+  response.headers.set(
+    "Server-Timing",
+    buildTimingHeader([
+      ["db_user", findUserMs],
+      ["db_update", updateTokenMs],
+      ["total", performance.now() - startedAt],
+    ])
+  )
 
   return response
 }

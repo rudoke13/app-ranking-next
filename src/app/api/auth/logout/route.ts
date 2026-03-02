@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 
-import { clearSessionCookie, getSessionFromCookies } from "@/lib/auth/session"
+import {
+  clearSessionCookie,
+  clearSessionTokenCache,
+  getSessionFromCookies,
+} from "@/lib/auth/session"
 import { db } from "@/lib/db"
 
 export async function POST() {
@@ -11,6 +15,7 @@ export async function POST() {
       where: { id: userId },
       data: { sessionToken: null },
     })
+    clearSessionTokenCache(userId)
   }
   const response = NextResponse.json({ ok: true })
   clearSessionCookie(response)

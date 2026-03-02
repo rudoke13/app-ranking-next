@@ -28,14 +28,38 @@ const toCount = (value: unknown) => {
 }
 
 export async function GET() {
+  const startedAt = performance.now()
+  const buildTimingHeader = (entries: Array<[string, number]>) =>
+    entries.map(([name, duration]) => `${name};dur=${duration.toFixed(1)}`).join(", ")
+
   const session = await getSessionFromCookies()
   if (!session) {
-    return NextResponse.json({ ok: false, message: "Nao autorizado." }, { status: 401 })
+    const response = NextResponse.json(
+      { ok: false, message: "Nao autorizado." },
+      { status: 401 }
+    )
+    response.headers.set(
+      "Server-Timing",
+      buildTimingHeader([["total", performance.now() - startedAt]])
+    )
+    return response
   }
+  const sessionMs = performance.now() - startedAt
 
   const userId = Number(session.userId)
   if (!Number.isFinite(userId)) {
-    return NextResponse.json({ ok: false, message: "Usuario invalido." }, { status: 400 })
+    const response = NextResponse.json(
+      { ok: false, message: "Usuario invalido." },
+      { status: 400 }
+    )
+    response.headers.set(
+      "Server-Timing",
+      buildTimingHeader([
+        ["session", sessionMs],
+        ["total", performance.now() - startedAt],
+      ])
+    )
+    return response
   }
 
   const now = new Date()
@@ -44,10 +68,17 @@ export async function GET() {
   const nextMonth = new Date(monthStart)
   nextMonth.setMonth(nextMonth.getMonth() + 1)
 
+  const baseQueryStartedAt = performance.now()
   const [membership, receivedChallengesRaw, myChallenges, recentResultsRaw] = await Promise.all([
     db.ranking_memberships.findFirst({
       where: { user_id: userId },
-      include: { rankings: true },
+      select: {
+        ranking_id: true,
+        position: true,
+        rankings: {
+          select: { id: true, name: true, slug: true },
+        },
+      },
       orderBy: { ranking_id: "asc" },
     }),
     db.challenges.findMany({
@@ -146,7 +177,9 @@ export async function GET() {
       take: 12,
     }),
   ])
+  const baseQueryMs = performance.now() - baseQueryStartedAt
 
+  const roundQueryStartedAt = performance.now()
   const rounds = await db.rounds.findMany({
     where: {
       reference_month: monthKey,
@@ -155,6 +188,7 @@ export async function GET() {
         : [{ ranking_id: null }],
     },
   })
+  const roundQueryMs = performance.now() - roundQueryStartedAt
 
   const currentRound =
     rounds.find((round) => round.ranking_id === membership?.ranking_id) ??
@@ -177,6 +211,7 @@ export async function GET() {
       avatarUrl: string | null
     }
   }> = []
+  let statsQueryMs = 0
 
   if (membership) {
     type MembershipStatsRow = {
@@ -189,6 +224,7 @@ export async function GET() {
       my_pending_month_count: unknown
     }
 
+    const statsQueryStartedAt = performance.now()
     const [membershipStatsRows, challengeStatsRows, suspendedRows] = await Promise.all([
       db.$queryRaw<MembershipStatsRow[]>`
         SELECT
@@ -231,6 +267,7 @@ export async function GET() {
         orderBy: [{ license_position: "asc" }, { position: "asc" }],
       }),
     ])
+    statsQueryMs = performance.now() - statsQueryStartedAt
 
     const membershipStats = membershipStatsRows[0]
     const challengeStats = challengeStatsRows[0]
@@ -280,7 +317,7 @@ export async function GET() {
     })
     .slice(0, 9)
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     data: {
       viewerId: userId,
@@ -420,4 +457,15 @@ export async function GET() {
       })),
     },
   })
+  response.headers.set(
+    "Server-Timing",
+    buildTimingHeader([
+      ["session", sessionMs],
+      ["base", baseQueryMs],
+      ["round", roundQueryMs],
+      ["stats", statsQueryMs],
+      ["total", performance.now() - startedAt],
+    ])
+  )
+  return response
 }
