@@ -3,12 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ranking-tcc-app
     restart: unless-stopped
     depends_on:
       - minio
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - APP_URL=https://appranking.taubatecountryclub.com.br
       - INTERNAL_APP_URL=http://localhost:3000
@@ -32,12 +31,11 @@ services:
       - SMTP_FROM
   minio:
     image: minio/minio
-    container_name: ranking-tcc-minio
     restart: unless-stopped
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    command: server /data --address ":9000" --console-address ":9001"
+    expose:
+      - "9000"
+      - "9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
