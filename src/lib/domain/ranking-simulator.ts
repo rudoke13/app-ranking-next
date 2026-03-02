@@ -52,6 +52,9 @@ export class RankingSimulator {
       Math.min(basePosition, memberCount - 1)
     )
 
+    // Regra da vitoria do desafiante:
+    // desafiante assume a posicao do desafiado e o desafiado desce 1,
+    // com efeito cascata nos demais jogadores abaixo.
     this.remove(challengerId)
     this.remove(challengedId)
     this.insertAt(challengerId, targetPosition)
@@ -79,8 +82,25 @@ export class RankingSimulator {
       1,
       Math.min(basePosition + distance, memberCount)
     )
+    // Desempate de quedas: quando multiplos desafiantes perdem e caem na mesma
+    // faixa, prioriza quem tinha melhor ranking base (posicao menor).
+    const baselineChallenger =
+      this.baseline[challengerId] ?? challengerOriginalPosition
+    let targetIndex = Math.min(this.order.length, targetPosition - 1)
+    while (targetIndex < this.order.length) {
+      const occupantId = this.order[targetIndex]
+      if (this.movement[occupantId] !== RankingMovement.DROP) {
+        break
+      }
+      const baselineOccupant = this.baseline[occupantId] ?? Number.MAX_SAFE_INTEGER
+      if (baselineOccupant <= baselineChallenger) {
+        targetIndex += 1
+        continue
+      }
+      break
+    }
 
-    this.insertAt(challengerId, targetPosition)
+    this.order.splice(targetIndex, 0, challengerId)
     this.movement[challengerId] = RankingMovement.DROP
   }
 
