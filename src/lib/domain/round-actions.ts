@@ -268,43 +268,61 @@ const evaluateBluePoints = async (
     select: { challenger_id: true, challenged_id: true },
   })
 
+  const completedHistory = await db.challenges.findMany({
+    where: {
+      ranking_id: rankingId,
+      status: "completed",
+      OR: [
+        {
+          played_at: { lte: end },
+        },
+        {
+          played_at: null,
+          scheduled_for: { lte: end },
+        },
+      ],
+    },
+    select: {
+      id: true,
+      challenger_id: true,
+      challenged_id: true,
+      played_at: true,
+      scheduled_for: true,
+    },
+    orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }, { id: "desc" }],
+  })
+
   const hasChallenge = new Set<number>()
   monthChallenges.forEach((challenge) => {
     hasChallenge.add(challenge.challenger_id)
     hasChallenge.add(challenge.challenged_id)
   })
 
+  const recentParticipationByUser = new Map<
+    number,
+    Array<"challenger" | "challenged">
+  >()
+
+  for (const challenge of completedHistory) {
+    const registerRole = (userId: number, role: "challenger" | "challenged") => {
+      const current = recentParticipationByUser.get(userId) ?? []
+      if (current.length >= threshold) return
+      current.push(role)
+      recentParticipationByUser.set(userId, current)
+    }
+
+    registerRole(challenge.challenger_id, "challenger")
+    registerRole(challenge.challenged_id, "challenged")
+  }
+
   for (const member of members) {
     const userId = member.user_id
     const position =
       positionByUser.get(userId) ?? member.position ?? positions[userId] ?? 0
-    let challengedConsecutive = true
-
-    for (let index = 0; index < threshold; index += 1) {
-      const monthCheck = new Date(monthStart)
-      monthCheck.setMonth(monthCheck.getMonth() - index)
-      const { start, end } = monthRange(monthCheck)
-      const count = await db.challenges.count({
-        where: {
-          ranking_id: rankingId,
-          challenged_id: userId,
-          status: "completed",
-          OR: [
-            {
-              played_at: { gte: start, lt: end },
-            },
-            {
-              played_at: null,
-              scheduled_for: { gte: start, lt: end },
-            },
-          ],
-        },
-      })
-      if (count < 1) {
-        challengedConsecutive = false
-        break
-      }
-    }
+    const recentRoles = recentParticipationByUser.get(userId) ?? []
+    const challengedConsecutive =
+      recentRoles.length >= threshold &&
+      recentRoles.every((role) => role === "challenged")
 
     let locked = false
     if (
