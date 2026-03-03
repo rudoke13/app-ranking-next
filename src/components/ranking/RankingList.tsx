@@ -305,7 +305,10 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return { deadline: openStartAt, label: "Desafios livres em" }
     }
     if (phase === "before" || phase === "waiting_blue") {
-      return { deadline: blueStartAt, label: "Ponto azul em" }
+      if (viewerIsBlue) {
+        return { deadline: blueStartAt, label: "Ponto azul em" }
+      }
+      return { deadline: openStartAt, label: "Desafios livres em" }
     }
     return { deadline: null as number | null, label: "" }
   }, [playersData, phase, viewerIsBlue, blueStartAt, openStartAt])
