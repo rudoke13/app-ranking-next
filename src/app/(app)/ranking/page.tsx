@@ -3,6 +3,9 @@ import RankingList from "@/components/ranking/RankingList"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { hasStaffAccess } from "@/lib/domain/permissions"
 
+export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
+
 export default async function RankingPage() {
   const session = await getSessionFromCookies()
   const isAdmin = hasStaffAccess(session)

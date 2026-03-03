@@ -3,10 +3,22 @@ import { NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const
+
+const jsonNoStore = (body: unknown, init?: { status?: number }) =>
+  NextResponse.json(body, {
+    status: init?.status,
+    headers: NO_STORE_HEADERS,
+  })
+
 export async function GET() {
   const session = await getSessionFromCookies()
   if (!session) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Nao autorizado." },
       { status: 401 }
     )
@@ -53,7 +65,7 @@ export async function GET() {
     counts.map((item) => [item.ranking_id, item._count._all])
   )
 
-  return NextResponse.json({
+  return jsonNoStore({
     ok: true,
     data: rankings.map((ranking) => ({
       id: ranking.id,

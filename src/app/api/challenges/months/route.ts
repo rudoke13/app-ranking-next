@@ -4,6 +4,17 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const
+
+const jsonNoStore = (body: unknown, init?: { status?: number }) =>
+  NextResponse.json(body, {
+    status: init?.status,
+    headers: NO_STORE_HEADERS,
+  })
 
 const monthValueFromDateOnly = (value: Date) => {
   const year = value.getUTCFullYear()
@@ -31,7 +42,7 @@ const monthValueInTz = (value: Date) => {
 export async function GET() {
   const session = await getSessionFromCookies()
   if (!session) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Nao autorizado." },
       { status: 401 }
     )
@@ -83,5 +94,5 @@ export async function GET() {
     .sort((a, b) => b.localeCompare(a))
     .slice(0, 24)
 
-  return NextResponse.json({ ok: true, data: { months, currentMonth } })
+  return jsonNoStore({ ok: true, data: { months, currentMonth } })
 }

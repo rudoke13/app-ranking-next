@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "start:prod": "prisma generate && node .next/standalone/server.js",
     "prisma:generate": "prisma generate",

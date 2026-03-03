@@ -19,6 +19,18 @@ import {
   resolveChallengeWinner,
 } from "@/lib/challenges/result"
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const
+
+const jsonNoStore = (body: unknown, init?: { status?: number }) =>
+  NextResponse.json(body, {
+    status: init?.status,
+    headers: NO_STORE_HEADERS,
+  })
+
 const monthSchema = z
   .string()
   .regex(/^\d{4}-\d{2}$/)
@@ -52,7 +64,7 @@ export async function GET(
 ) {
   const session = await getSessionFromCookies()
   if (!session) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Nao autorizado." },
       { status: 401 }
     )
@@ -61,7 +73,7 @@ export async function GET(
   const { id } = await params
   const rankingId = Number(id)
   if (!Number.isFinite(rankingId)) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Ranking invalido." },
       { status: 400 }
     )
@@ -70,7 +82,7 @@ export async function GET(
   const { searchParams } = new URL(request.url)
   const monthParam = monthSchema.safeParse(searchParams.get("month") || undefined)
   if (!monthParam.success) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Mes invalido." },
       { status: 400 }
     )
@@ -87,7 +99,7 @@ export async function GET(
   })
 
   if (!ranking || (!ranking.is_active && !isAdmin)) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Ranking nao encontrado." },
       { status: 404 }
     )
@@ -110,7 +122,7 @@ export async function GET(
     ranking.only_for_enrolled_players &&
     !userMembership
   ) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Categoria disponivel apenas para inscritos." },
       { status: 403 }
     )
@@ -145,14 +157,14 @@ export async function GET(
 
   const monthStart = monthStartLocalFromValue(requestedMonthValue)
   if (Number.isNaN(monthStart.getTime())) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Mes invalido." },
       { status: 400 }
     )
   }
   const monthKey = monthKeyFromValue(requestedMonthValue)
   if (Number.isNaN(monthKey.getTime())) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Mes invalido." },
       { status: 400 }
     )
@@ -530,9 +542,10 @@ export async function GET(
   const canManage = await canManageRanking(session, rankingId)
   const canManageAll = session.role === "admin"
 
-  return NextResponse.json({
+  return jsonNoStore({
     ok: true,
     data: {
+      serverNow: now.toISOString(),
       viewerId: Number(session.userId),
       canManage,
       canManageAll,

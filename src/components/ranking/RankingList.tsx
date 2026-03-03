@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type DragEvent } from "react"
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react"
 import Link from "next/link"
 import { GripVertical, Pencil, Swords, Users, X } from "lucide-react"
 
@@ -74,6 +74,7 @@ type PlayerItem = {
 }
 
 type PlayersResponse = {
+  serverNow?: string
   viewerId: number
   canManage?: boolean
   canManageAll?: boolean
@@ -148,6 +149,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   >(null)
   const [rolloverAll, setRolloverAll] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [serverOffsetMs, setServerOffsetMs] = useState(0)
   const [releaseFlashAt, setReleaseFlashAt] = useState<number | null>(null)
   const [editingPlayer, setEditingPlayer] = useState<PlayerItem | null>(null)
   const [editForm, setEditForm] = useState({
@@ -159,6 +161,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   const [editError, setEditError] = useState<string | null>(null)
   const canManage = Boolean(isAdmin && playersData?.canManage)
   const canManageAll = Boolean(canManage && playersData?.canManageAll)
+  const getNow = useCallback(() => Date.now() + serverOffsetMs, [serverOffsetMs])
 
   const resetSelectionState = () => {
     setEditing(false)
@@ -197,7 +200,6 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
         return
       }
 
-      setRankings(response.data)
       const ordered = [
         ...response.data.filter((item) => item.isUserMember),
         ...response.data.filter((item) => !item.isUserMember),
@@ -237,6 +239,15 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
         setLoadError(response.message)
         setLoadingPlayers(false)
         return
+      }
+
+      const serverNowMs = response.data.serverNow
+        ? new Date(response.data.serverNow).getTime()
+        : Number.NaN
+      if (!Number.isNaN(serverNowMs)) {
+        const offset = serverNowMs - Date.now()
+        setServerOffsetMs(offset)
+        setNow(Date.now() + offset)
       }
 
       setPlayersData(response.data)
@@ -301,13 +312,13 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
   useEffect(() => {
     if (!countdownInfo.deadline) return
-    if (Date.now() >= countdownInfo.deadline) {
-      setNow(Date.now())
+    if (getNow() >= countdownInfo.deadline) {
+      setNow(getNow())
       return
     }
-    const interval = setInterval(() => setNow(Date.now()), 1000)
+    const interval = setInterval(() => setNow(getNow()), 1000)
     return () => clearInterval(interval)
-  }, [countdownInfo.deadline])
+  }, [countdownInfo.deadline, getNow])
 
   const countdownLabel = useMemo(() => {
     if (!countdownInfo.deadline) return null
@@ -329,14 +340,18 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       : null
 
   useEffect(() => {
-    if (!countdownInfo.deadline) return
-    if (Date.now() >= countdownInfo.deadline) return
+    const deadline = countdownInfo.deadline
+    if (!deadline) return
+    if (getNow() >= deadline) return
     const timeout = setTimeout(() => {
-      setNow(Date.now())
-      setReleaseFlashAt(Date.now())
-    }, Math.max(0, countdownInfo.deadline - Date.now()) + 50)
+      const currentNow = getNow()
+      setNow(currentNow)
+      if (currentNow >= deadline) {
+        setReleaseFlashAt(currentNow)
+      }
+    }, Math.max(0, deadline - getNow()) + 50)
     return () => clearTimeout(timeout)
-  }, [countdownInfo.deadline])
+  }, [countdownInfo.deadline, getNow])
 
   useEffect(() => {
     if (!releaseFlashAt) return

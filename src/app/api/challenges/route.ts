@@ -45,6 +45,17 @@ const formatName = (first?: string | null, last?: string | null, nickname?: stri
 }
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+} as const
+
+const jsonNoStore = (body: unknown, init?: { status?: number }) =>
+  NextResponse.json(body, {
+    status: init?.status,
+    headers: NO_STORE_HEADERS,
+  })
 
 const toZonedMonthStart = (value: string) => {
   const [yearRaw, monthRaw] = value.split("-")
@@ -60,7 +71,7 @@ const toZonedMonthStart = (value: string) => {
 export async function GET(request: Request) {
   const session = await getSessionFromCookies()
   if (!session) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Nao autorizado." },
       { status: 401 }
     )
@@ -75,7 +86,7 @@ export async function GET(request: Request) {
   })
 
   if (!parsed.success) {
-    return NextResponse.json(
+    return jsonNoStore(
       { ok: false, message: "Filtros invalidos." },
       { status: 400 }
     )
@@ -313,7 +324,7 @@ export async function GET(request: Request) {
       return challenge.status === statusFilter
     })
 
-  return NextResponse.json({ ok: true, data })
+  return jsonNoStore({ ok: true, data })
 }
 
 export async function POST(request: Request) {
