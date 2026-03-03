@@ -55,11 +55,20 @@ export async function GET() {
       orderBy: { reference_month: "desc" },
       take: 24,
     }),
-    db.challenges.findMany({
-      select: { scheduled_for: true, played_at: true },
-      orderBy: { scheduled_for: "desc" },
-      take: 1000,
-    }),
+    db.$queryRaw<Array<{ month_start: Date }>>`
+      SELECT month_start
+      FROM (
+        SELECT date_trunc('month', scheduled_for)::date AS month_start
+        FROM challenges
+        WHERE scheduled_for IS NOT NULL
+        UNION
+        SELECT date_trunc('month', played_at)::date AS month_start
+        FROM challenges
+        WHERE played_at IS NOT NULL
+      ) AS months
+      ORDER BY month_start DESC
+      LIMIT 24
+    `,
     db.rounds.findFirst({
       where: { status: "open" },
       select: { reference_month: true },
@@ -74,12 +83,7 @@ export async function GET() {
   })
 
   challenges.forEach((challenge) => {
-    if (challenge.scheduled_for) {
-      monthSet.add(monthValueInTz(challenge.scheduled_for))
-    }
-    if (challenge.played_at) {
-      monthSet.add(monthValueInTz(challenge.played_at))
-    }
+    monthSet.add(monthValueInTz(challenge.month_start))
   })
 
   const currentMonth = openRound?.reference_month

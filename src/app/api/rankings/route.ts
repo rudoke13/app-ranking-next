@@ -25,12 +25,19 @@ export async function GET() {
   }
 
   const userId = Number(session.userId)
-  const userMemberships = Number.isFinite(userId)
-    ? await db.ranking_memberships.findMany({
-        where: { user_id: userId },
-        select: { ranking_id: true },
-      })
-    : []
+  const [userMemberships, counts] = await Promise.all([
+    Number.isFinite(userId)
+      ? db.ranking_memberships.findMany({
+          where: { user_id: userId },
+          select: { ranking_id: true },
+        })
+      : Promise.resolve([]),
+    db.ranking_memberships.groupBy({
+      by: ["ranking_id"],
+      where: { is_suspended: false },
+      _count: { _all: true },
+    }),
+  ])
 
   const membershipIds = userMemberships.map((item) => item.ranking_id)
   const memberSet = new Set(membershipIds)
@@ -53,12 +60,6 @@ export async function GET() {
             : {}),
         },
     orderBy: { name: "asc" },
-  })
-
-  const counts = await db.ranking_memberships.groupBy({
-    by: ["ranking_id"],
-    where: { is_suspended: false },
-    _count: { _all: true },
   })
 
   const countMap = new Map(

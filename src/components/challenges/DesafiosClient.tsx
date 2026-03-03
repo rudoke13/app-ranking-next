@@ -248,8 +248,7 @@ export default function DesafiosClient({
     initializedRef.current = true
 
     const init = async () => {
-      await loadRankings()
-      const current = await loadMonths()
+      const [, current] = await Promise.all([loadRankings(), loadMonths()])
       await loadChallenges(current)
     }
     init()

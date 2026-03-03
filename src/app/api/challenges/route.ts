@@ -172,88 +172,10 @@ export async function GET(request: Request) {
     },
   })
 
-  const sorted = [...challenges].sort((a, b) => {
-    const timeFor = (item: typeof a) =>
-      item.played_at?.getTime() ??
-      item.scheduled_for?.getTime() ??
-      item.created_at?.getTime() ??
-      0
-    const normalizedStatus = (item: typeof a) =>
-      resolveChallengeStatus({
-        status: item.status,
-        winner: item.winner,
-        played_at: item.played_at,
-        challenger_games: item.challenger_games,
-        challenged_games: item.challenged_games,
-        challenger_walkover: item.challenger_walkover,
-        challenged_walkover: item.challenged_walkover,
-      })
-
-    switch (sortKey) {
-      case "oldest":
-        return timeFor(a) - timeFor(b)
-      case "played_recent":
-        return (b.played_at ? b.played_at.getTime() : 0) -
-          (a.played_at ? a.played_at.getTime() : 0) ||
-          timeFor(b) - timeFor(a)
-      case "pending_first":
-        {
-          const statusA = normalizedStatus(a)
-          const statusB = normalizedStatus(b)
-        return (
-          (statusA === "scheduled" || statusA === "accepted" ? 0 : 1) -
-            (statusB === "scheduled" || statusB === "accepted" ? 0 : 1) ||
-          timeFor(a) - timeFor(b)
-        )
-        }
-      case "completed_first":
-        {
-          const statusA = normalizedStatus(a)
-          const statusB = normalizedStatus(b)
-        return (
-          (statusA === "completed" ? 0 : 1) -
-            (statusB === "completed" ? 0 : 1) ||
-          (b.played_at ? b.played_at.getTime() : 0) -
-            (a.played_at ? a.played_at.getTime() : 0)
-        )
-        }
-      case "challenger":
-        return formatName(
-          a.users_challenges_challenger_idTousers.first_name,
-          a.users_challenges_challenger_idTousers.last_name,
-          a.users_challenges_challenger_idTousers.nickname
-        ).localeCompare(
-          formatName(
-            b.users_challenges_challenger_idTousers.first_name,
-            b.users_challenges_challenger_idTousers.last_name,
-            b.users_challenges_challenger_idTousers.nickname
-          )
-        )
-      default:
-        return timeFor(b) - timeFor(a)
-    }
-  })
-
-  const data = sorted
-    .map((challenge) => {
-    const challenger = challenge.users_challenges_challenger_idTousers
-    const challenged = challenge.users_challenges_challenged_idTousers
-    const isChallenger = Number(session.userId) === challenge.challenger_id
-    const isChallenged = Number(session.userId) === challenge.challenged_id
-    const createdAt = challenge.created_at?.getTime() ?? 0
-    const cancelWindowOpen = Date.now() - createdAt <= 5 * 60 * 1000
-    const cancelWindowClosesAt = challenge.created_at
-      ? new Date(challenge.created_at.getTime() + 5 * 60 * 1000).toISOString()
-      : null
-
-    const resolvedWinner = resolveChallengeWinner({
-      winner: challenge.winner,
-      challenger_games: challenge.challenger_games,
-      challenged_games: challenge.challenged_games,
-      challenger_walkover: challenge.challenger_walkover,
-      challenged_walkover: challenge.challenged_walkover,
-    })
-    const resolvedStatus = resolveChallengeStatus({
+  const viewerId = Number(session.userId)
+  const nowMs = Date.now()
+  const normalizedChallenges = challenges.map((challenge) => {
+    const normalizedStatus = resolveChallengeStatus({
       status: challenge.status,
       winner: challenge.winner,
       played_at: challenge.played_at,
@@ -262,22 +184,100 @@ export async function GET(request: Request) {
       challenger_walkover: challenge.challenger_walkover,
       challenged_walkover: challenge.challenged_walkover,
     })
+    const resolvedWinner = resolveChallengeWinner({
+      winner: challenge.winner,
+      challenger_games: challenge.challenger_games,
+      challenged_games: challenge.challenged_games,
+      challenger_walkover: challenge.challenger_walkover,
+      challenged_walkover: challenge.challenged_walkover,
+    })
+    const sortTime =
+      challenge.played_at?.getTime() ??
+      challenge.scheduled_for?.getTime() ??
+      challenge.created_at?.getTime() ??
+      0
+
+    return {
+      challenge,
+      normalizedStatus,
+      resolvedWinner,
+      sortTime,
+      playedAtTime: challenge.played_at?.getTime() ?? 0,
+      challengerName: formatName(
+        challenge.users_challenges_challenger_idTousers.first_name,
+        challenge.users_challenges_challenger_idTousers.last_name,
+        challenge.users_challenges_challenger_idTousers.nickname
+      ),
+    }
+  })
+
+  const filteredByStatus =
+    !statusFilter || statusFilter === "cancelled"
+      ? normalizedChallenges
+      : normalizedChallenges.filter(
+          (entry) => entry.normalizedStatus === statusFilter
+        )
+
+  const sorted = [...filteredByStatus].sort((a, b) => {
+    switch (sortKey) {
+      case "oldest":
+        return a.sortTime - b.sortTime
+      case "played_recent":
+        return b.playedAtTime - a.playedAtTime || b.sortTime - a.sortTime
+      case "pending_first":
+        return (
+          (a.normalizedStatus === "scheduled" ||
+          a.normalizedStatus === "accepted"
+            ? 0
+            : 1) -
+            (b.normalizedStatus === "scheduled" ||
+            b.normalizedStatus === "accepted"
+              ? 0
+              : 1) ||
+          a.sortTime - b.sortTime
+        )
+      case "completed_first":
+        return (
+          (a.normalizedStatus === "completed" ? 0 : 1) -
+            (b.normalizedStatus === "completed" ? 0 : 1) ||
+          b.playedAtTime - a.playedAtTime
+        )
+      case "challenger":
+        return a.challengerName.localeCompare(b.challengerName)
+      default:
+        return b.sortTime - a.sortTime
+    }
+  })
+
+  const data = sorted
+    .map((entry) => {
+    const challenge = entry.challenge
+    const challenger = challenge.users_challenges_challenger_idTousers
+    const challenged = challenge.users_challenges_challenged_idTousers
+    const isChallenger = viewerId === challenge.challenger_id
+    const isChallenged = viewerId === challenge.challenged_id
+    const createdAt = challenge.created_at?.getTime() ?? 0
+    const cancelWindowOpen = nowMs - createdAt <= 5 * 60 * 1000
+    const cancelWindowClosesAt = challenge.created_at
+      ? new Date(challenge.created_at.getTime() + 5 * 60 * 1000).toISOString()
+      : null
+
     const canCancel =
-      (resolvedStatus === "scheduled" ||
-        (isAdmin && resolvedStatus === "accepted")) &&
+      (entry.normalizedStatus === "scheduled" ||
+        (isAdmin && entry.normalizedStatus === "accepted")) &&
       (isChallenger || isAdmin) &&
       (isAdmin || cancelWindowOpen)
 
     const canResult =
-      (resolvedStatus === "accepted" ||
-        (resolvedStatus === "scheduled" &&
+      (entry.normalizedStatus === "accepted" ||
+        (entry.normalizedStatus === "scheduled" &&
           (isAdmin || !cancelWindowOpen))) &&
       (isChallenger || isChallenged || isAdmin)
 
     return {
       id: challenge.id,
-      status: resolvedStatus,
-      winner: resolvedWinner,
+      status: entry.normalizedStatus,
+      winner: entry.resolvedWinner,
       ranking: {
         id: challenge.rankings.id,
         name: challenge.rankings.name,
@@ -319,10 +319,6 @@ export async function GET(request: Request) {
       canResult,
     }
   })
-    .filter((challenge) => {
-      if (!statusFilter || statusFilter === "cancelled") return true
-      return challenge.status === statusFilter
-    })
 
   return jsonNoStore({ ok: true, data })
 }

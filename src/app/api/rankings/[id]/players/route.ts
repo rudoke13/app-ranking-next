@@ -94,9 +94,22 @@ export async function GET(
   const isRestrictedToMembership =
     session.role === "player" || session.role === "member"
 
-  const ranking = await db.rankings.findUnique({
-    where: { id: rankingId },
-  })
+  const [ranking, userMembership] = await Promise.all([
+    db.rankings.findUnique({
+      where: { id: rankingId },
+    }),
+    Number.isFinite(userId)
+      ? db.ranking_memberships.findUnique({
+          where: {
+            ranking_id_user_id: {
+              ranking_id: rankingId,
+              user_id: userId,
+            },
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+  ])
 
   if (!ranking || (!ranking.is_active && !isAdmin)) {
     return jsonNoStore(
@@ -104,18 +117,6 @@ export async function GET(
       { status: 404 }
     )
   }
-
-  const userMembership = Number.isFinite(userId)
-    ? await db.ranking_memberships.findUnique({
-        where: {
-          ranking_id_user_id: {
-            ranking_id: rankingId,
-            user_id: userId,
-          },
-        },
-        select: { id: true },
-      })
-    : null
 
   if (
     isRestrictedToMembership &&
@@ -128,24 +129,23 @@ export async function GET(
     )
   }
 
-  const openRankingRound = await db.rounds.findFirst({
-    where: { status: "open", ranking_id: rankingId },
-    select: { reference_month: true },
-    orderBy: { reference_month: "desc" },
+  const openRounds = await db.rounds.findMany({
+    where: {
+      status: "open",
+      OR: [{ ranking_id: rankingId }, { ranking_id: null }],
+    },
+    select: { ranking_id: true, reference_month: true },
+    orderBy: [{ reference_month: "desc" }, { id: "desc" }],
+    take: 24,
   })
 
-  const openGlobalRound = openRankingRound
-    ? null
-    : await db.rounds.findFirst({
-        where: { status: "open", ranking_id: null },
-        select: { reference_month: true },
-        orderBy: { reference_month: "desc" },
-      })
+  const openRound =
+    openRounds.find((round) => round.ranking_id === rankingId) ??
+    openRounds.find((round) => round.ranking_id === null) ??
+    null
 
-  const openMonthValue = openRankingRound
-    ? monthValueUtc(openRankingRound.reference_month)
-    : openGlobalRound
-    ? monthValueUtc(openGlobalRound.reference_month)
+  const openMonthValue = openRound
+    ? monthValueUtc(openRound.reference_month)
     : null
 
   let requestedMonthValue =
@@ -532,14 +532,15 @@ export async function GET(
   activePlayers.sort(sortByPosition)
   suspendedPlayers.sort(sortByPosition)
 
-  const challengeWindow = await resolveChallengeWindows(rankingId, now)
+  const [challengeWindow, canManage] = await Promise.all([
+    resolveChallengeWindows(rankingId, now),
+    canManageRanking(session, rankingId),
+  ])
   const baseAccessThreshold = getAccessThreshold(ranking.slug)
   const accessThreshold = baseAccessThreshold
     ? Math.min(baseAccessThreshold, memberships.length)
     : null
   const windowState = toWindowState(challengeWindow, now)
-
-  const canManage = await canManageRanking(session, rankingId)
   const canManageAll = session.role === "admin"
 
   return jsonNoStore({
