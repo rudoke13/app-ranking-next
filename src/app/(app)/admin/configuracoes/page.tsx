@@ -95,6 +95,10 @@ export default function AdminConfiguracoesPage() {
   const [createName, setCreateName] = useState("")
   const [createDescription, setCreateDescription] = useState("")
   const [creating, setCreating] = useState(false)
+  const [editingRankingId, setEditingRankingId] = useState<number | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editDescription, setEditDescription] = useState("")
+  const [editingRanking, setEditingRanking] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -343,6 +347,61 @@ export default function AdminConfiguracoesPage() {
     )
   }
 
+  const handleStartEditRanking = (ranking: RankingItem) => {
+    setEditingRankingId(ranking.id)
+    setEditName(ranking.name)
+    setEditDescription(ranking.description ?? "")
+    setError(null)
+    setSuccess(null)
+  }
+
+  const handleCancelEditRanking = () => {
+    setEditingRankingId(null)
+    setEditName("")
+    setEditDescription("")
+    setEditingRanking(false)
+  }
+
+  const handleSaveEditRanking = async () => {
+    if (!editingRankingId) return
+    if (!editName.trim()) {
+      setError("Informe o nome da categoria.")
+      return
+    }
+
+    setEditingRanking(true)
+    setError(null)
+    setSuccess(null)
+
+    const response = await apiPatch<RankingItem>(
+      `/api/admin/rankings/${editingRankingId}`,
+      {
+        name: editName.trim(),
+        description: editDescription.trim() || null,
+      }
+    )
+
+    if (!response.ok) {
+      setError(response.message)
+      setEditingRanking(false)
+      return
+    }
+
+    setRankings((current) =>
+      current.map((item) =>
+        item.id === editingRankingId
+          ? {
+              ...item,
+              name: response.data.name,
+              description: response.data.description,
+            }
+          : item
+      )
+    )
+    setSuccess("Categoria atualizada com sucesso.")
+    handleCancelEditRanking()
+  }
+
   const BrandingUploader = ({
     kind,
   }: {
@@ -567,16 +626,44 @@ export default function AdminConfiguracoesPage() {
                       key={ranking.id}
                       className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">
-                          {ranking.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {ranking.description ?? "Sem descricao"}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          slug: {ranking.slug}
-                        </p>
+                      <div className="w-full space-y-2">
+                        {editingRankingId === ranking.id ? (
+                          <>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Nome</Label>
+                              <Input
+                                value={editName}
+                                onChange={(event) =>
+                                  setEditName(event.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Descricao</Label>
+                              <Input
+                                value={editDescription}
+                                onChange={(event) =>
+                                  setEditDescription(event.target.value)
+                                }
+                              />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              slug: {ranking.slug}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-foreground">
+                              {ranking.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {ranking.description ?? "Sem descricao"}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              slug: {ranking.slug}
+                            </p>
+                          </>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge
@@ -603,6 +690,9 @@ export default function AdminConfiguracoesPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleToggleOnlyForEnrolled(ranking)}
+                          disabled={
+                            editingRankingId === ranking.id || editingRanking
+                          }
                         >
                           {ranking.onlyForEnrolledPlayers
                             ? "Mostrar para todos"
@@ -613,9 +703,43 @@ export default function AdminConfiguracoesPage() {
                           variant={ranking.isActive ? "outline" : "default"}
                           size="sm"
                           onClick={() => handleToggleRanking(ranking)}
+                          disabled={
+                            editingRankingId === ranking.id || editingRanking
+                          }
                         >
                           {ranking.isActive ? "Inativar" : "Ativar"}
                         </Button>
+                        {editingRankingId === ranking.id ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleCancelEditRanking}
+                              disabled={editingRanking}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleSaveEditRanking}
+                              disabled={editingRanking}
+                            >
+                              {editingRanking ? "Salvando..." : "Salvar"}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleStartEditRanking(ranking)}
+                            disabled={editingRanking}
+                          >
+                            Editar
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

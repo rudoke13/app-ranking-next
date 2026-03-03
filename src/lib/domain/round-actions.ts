@@ -475,8 +475,10 @@ const storeEndSnapshot = async (
 
 type CloseRoundOptions = {
   manualOverride?: boolean
+  preserveCurrentState?: boolean
   ignoreViolations?: boolean
   persistMemberships?: boolean
+  recomputeBluePoints?: boolean
   closeStatus?: boolean
   closeGlobal?: boolean
 }
@@ -550,6 +552,7 @@ export async function closeRound(
   await storeSnapshot(rankingId, monthStart, "start", baseline)
 
   const manualOverrideFlag = options?.manualOverride === true
+  const preserveCurrentState = options?.preserveCurrentState === true
   const manualOverrideMarker = await db.round_logs.findFirst({
     where: {
       ranking_id: rankingId,
@@ -561,8 +564,9 @@ export async function closeRound(
   })
   const ignoreViolations =
     options?.ignoreViolations === true || Boolean(manualOverrideMarker)
-  const forceManualClose = manualOverrideFlag && !ignoreViolations
+  const forceManualClose = manualOverrideFlag || preserveCurrentState
   const persistMemberships = options?.persistMemberships !== false
+  const recomputeBluePoints = options?.recomputeBluePoints !== false
   const closeStatus = options?.closeStatus !== false
   const closeGlobal = options?.closeGlobal === true
 
@@ -610,7 +614,7 @@ export async function closeRound(
       }
     })
 
-    if (persistMemberships) {
+    if (persistMemberships && recomputeBluePoints) {
       await evaluateBluePoints(
         rankingId,
         monthStart,
@@ -797,7 +801,7 @@ export async function closeRound(
     }
   })
 
-  if (persistMemberships) {
+  if (persistMemberships && recomputeBluePoints) {
     await evaluateBluePoints(
       rankingId,
       monthStart,
@@ -908,7 +912,12 @@ export async function rolloverRound(
       const result = await closeRound(
         targetRankingId,
         referenceMonth,
-        actorId
+        actorId,
+        {
+          manualOverride: true,
+          preserveCurrentState: true,
+          recomputeBluePoints: false,
+        }
       )
       if (result.violations.length) {
         violations.push({
