@@ -62,14 +62,22 @@ RUN set -e; \
     if [ -z "${DIRECT_URL:-}" ]; then export DIRECT_URL="$DB_URL"; else export DIRECT_URL="${DIRECT_URL}"; fi; \
     npm run prisma:generate
 RUN set -e; \
-    DB_URL="${DATABASE_URL:-}"; \
-    if [ -z "$DB_URL" ]; then DB_URL="${DIRECT_URL:-}"; fi; \
-    if [ -z "$DB_URL" ]; then DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public"; fi; \
+    DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public"; \
     export DATABASE_URL="$DB_URL"; \
-    if [ -z "${DIRECT_URL:-}" ]; then export DIRECT_URL="$DB_URL"; else export DIRECT_URL="${DIRECT_URL}"; fi; \
+    export DIRECT_URL="$DB_URL"; \
+    export JWT_SECRET="${JWT_SECRET:-build-only-jwt-secret}"; \
+    export S3_ENDPOINT="${S3_ENDPOINT:-http://127.0.0.1:9000}"; \
+    export S3_ENDPOINT_INTERNAL="${S3_ENDPOINT_INTERNAL:-http://127.0.0.1:9000}"; \
+    export S3_REGION="${S3_REGION:-us-east-1}"; \
+    export S3_ACCESS_KEY="${S3_ACCESS_KEY:-build-access-key}"; \
+    export S3_SECRET_KEY="${S3_SECRET_KEY:-build-secret-key}"; \
+    export S3_BUCKET="${S3_BUCKET:-build-bucket}"; \
+    export S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-https://example.com/build-bucket}"; \
+    export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"; \
+    export NEXT_PUBLIC_APP_NAME="${NEXT_PUBLIC_APP_NAME:-Ranking TCC}"; \
     export NEXT_PRIVATE_BUILD_WORKER=1; \
     export NEXT_TELEMETRY_DISABLED=1; \
-    (npx next build --webpack --experimental-build-mode=compile || npm run build)
+    npx next build --webpack --experimental-build-mode=compile
 
 FROM node:20-alpine AS runner
 WORKDIR /app
