@@ -47,7 +47,6 @@ const formatName = (first?: string | null, last?: string | null, nickname?: stri
   return full || "Jogador"
 }
 
-const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
   Pragma: "no-cache",
@@ -112,19 +111,27 @@ const writeChallengesResponseCache = (
   })
 }
 
-const toZonedMonthStart = (value: string) => {
+const toMonthStartUtc = (value: string) => {
   const [yearRaw, monthRaw] = value.split("-")
   const year = Number(yearRaw)
   const month = Number(monthRaw)
   if (!Number.isFinite(year) || !Number.isFinite(month)) return null
-  const utc = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0))
-  const tzDate = new Date(utc.toLocaleString("en-US", { timeZone: APP_TIMEZONE }))
-  const offset = utc.getTime() - tzDate.getTime()
-  return new Date(utc.getTime() + offset)
+  if (month < 1 || month > 12) return null
+  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0))
 }
 
 export async function GET(request: Request) {
-  const session = await getSessionFromCookies()
+  let session: Awaited<ReturnType<typeof getSessionFromCookies>> = null
+  try {
+    session = await getSessionFromCookies()
+  } catch (error) {
+    console.error("[api/challenges][GET] session failed", error)
+    return jsonResponse(
+      { ok: false, message: "Erro interno ao validar sessao." },
+      { status: 500 }
+    )
+  }
+
   if (!session) {
     return jsonResponse(
       { ok: false, message: "Nao autorizado." },
@@ -176,9 +183,9 @@ export async function GET(request: Request) {
     sortKey === "recent" || sortKey === "oldest" || sortKey === "played_recent"
 
   const monthValue = parsed.data.month
-  const monthStart = monthValue ? toZonedMonthStart(monthValue) : null
+  const monthStart = monthValue ? toMonthStartUtc(monthValue) : null
   const nextMonth = monthValue
-    ? toZonedMonthStart(shiftMonthValue(monthValue, 1))
+    ? toMonthStartUtc(shiftMonthValue(monthValue, 1))
     : null
 
   let rankingId: number | null = null
@@ -481,11 +488,20 @@ export async function GET(request: Request) {
   })()
 
   challengesResponseInFlight.set(inFlightKey, pending)
-  const payload = await pending.finally(() => {
+  let payload: ChallengesResponsePayload
+  try {
+    payload = await pending
+  } catch (error) {
+    console.error("[api/challenges][GET] failed", error)
+    return jsonResponse(
+      { ok: false, message: "Erro interno ao carregar desafios." },
+      { status: 500 }
+    )
+  } finally {
     if (challengesResponseInFlight.get(inFlightKey) === pending) {
       challengesResponseInFlight.delete(inFlightKey)
     }
-  })
+  }
 
   return jsonResponse(payload)
 }
