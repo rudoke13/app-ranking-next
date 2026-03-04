@@ -11,7 +11,7 @@ import {
   type DragEvent,
 } from "react"
 import Link from "next/link"
-import { GripVertical, Pencil, Swords, Users, X } from "lucide-react"
+import { Eye, GripVertical, Pencil, Swords, Users, X } from "lucide-react"
 
 import EmptyState from "@/components/app/EmptyState"
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
@@ -114,6 +114,49 @@ type PlayersResponse = {
   suspended: PlayerItem[]
 }
 
+type ChallengeHistoryItem = {
+  id: number
+  status: "scheduled" | "accepted" | "declined" | "completed" | "cancelled"
+  winner: "challenger" | "challenged" | null
+  scheduledFor: string
+  playedAt: string | null
+  challengerGames: number | null
+  challengedGames: number | null
+  challengerWalkover: boolean
+  challengedWalkover: boolean
+  challenger: {
+    id: number
+    name: string
+    avatarUrl: string | null
+  }
+  challenged: {
+    id: number
+    name: string
+    avatarUrl: string | null
+  }
+}
+
+type PlayerHistoryMonth = {
+  month: { value: string; label: string }
+  wasBluePoint: boolean
+  stats: {
+    total: number
+    wins: number
+    losses: number
+    pending: number
+  }
+  items: ChallengeHistoryItem[]
+}
+
+type PlayerHistoryResponse = {
+  player: {
+    userId: number
+    name: string
+    avatarUrl: string | null
+  }
+  months: PlayerHistoryMonth[]
+}
+
 const formatName = (first: string, last: string, nickname?: string | null) => {
   const full = `${first} ${last}`.trim()
   const nick = (nickname ?? "").trim()
@@ -159,6 +202,63 @@ const formatCountdownLabel = (remainingMs: number) => {
   const mm = String(minutes).padStart(2, "0")
   const ss = String(seconds).padStart(2, "0")
   return hours > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+const formatChallengeDateTime = (value?: string | null) => {
+  if (!value) return "Sem data"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "Sem data"
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed)
+}
+
+const getChallengeScoreLabel = (challenge: ChallengeHistoryItem) => {
+  if (challenge.challengerWalkover) return "W.O. (desafiante)"
+  if (challenge.challengedWalkover) return "W.O. (desafiado)"
+  if (
+    challenge.challengerGames === null ||
+    challenge.challengedGames === null
+  ) {
+    return "-"
+  }
+  return `${challenge.challengerGames}/${challenge.challengedGames}`
+}
+
+const getPlayerChallengeTone = (
+  challenge: ChallengeHistoryItem,
+  playerId: number
+): StatPillTone => {
+  if (challenge.status === "completed") {
+    if (
+      (challenge.winner === "challenger" && challenge.challenger.id === playerId) ||
+      (challenge.winner === "challenged" && challenge.challenged.id === playerId)
+    ) {
+      return "success"
+    }
+    if (challenge.winner) return "danger"
+  }
+  return statusTone[challenge.status]
+}
+
+const getPlayerChallengeLabel = (
+  challenge: ChallengeHistoryItem,
+  playerId: number
+) => {
+  if (challenge.status === "completed") {
+    if (
+      (challenge.winner === "challenger" && challenge.challenger.id === playerId) ||
+      (challenge.winner === "challenged" && challenge.challenged.id === playerId)
+    ) {
+      return "Vitoria"
+    }
+    if (challenge.winner) return "Derrota"
+    return "Concluido"
+  }
+  return statusLabelMap[challenge.status]
 }
 
 const PLAYERS_CACHE_TTL_MS = 30_000
@@ -332,10 +432,12 @@ const RankingCategoryCard = memo(function RankingCategoryCard({
 
 type RankingPlayerCardProps = {
   row: ActivePlayerCardView
+  isSelected: boolean
   editing: boolean
   isDragging: boolean
   isActionLoading: boolean
   countdownText: string
+  onOpenHistory: (playerId: number) => void
   onChallenge: (playerId: number) => void
   onOpenEdit: (player: PlayerItem) => void
   onDragStart: (event: DragEvent<HTMLDivElement>, playerId: number) => void
@@ -346,10 +448,12 @@ type RankingPlayerCardProps = {
 const RankingPlayerCard = memo(
   function RankingPlayerCard({
     row,
+    isSelected,
     editing,
     isDragging,
     isActionLoading,
     countdownText,
+    onOpenHistory,
     onChallenge,
     onOpenEdit,
     onDragStart,
@@ -365,6 +469,8 @@ const RankingPlayerCard = memo(
           editing ? "cursor-grab border-dashed" : ""
         } py-2 sm:py-6 [content-visibility:auto] [contain-intrinsic-size:120px] ${row.cardClassName} ${
           isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
+        } ${isSelected ? "ring-2 ring-primary/40 border-primary/60" : ""} ${
+          !isSelected && !isDragging ? "ring-0" : ""
         }`}
         draggable={editing}
         onDragStart={(event) => onDragStart(event, row.player.userId)}
@@ -380,12 +486,36 @@ const RankingPlayerCard = memo(
                 <GripVertical className="size-3.5 sm:size-5" />
               </div>
             ) : null}
-            <UserAvatar
-              name={row.name}
-              src={row.player.avatarUrl}
-              size="clamp(26px, 8vw, 36px)"
-              sizes="36px"
-            />
+            {editing ? (
+              <UserAvatar
+                name={row.name}
+                src={row.player.avatarUrl}
+                size="clamp(26px, 8vw, 36px)"
+                sizes="36px"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpenHistory(row.player.userId)}
+                className={`group relative rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  isSelected
+                    ? "ring-2 ring-primary/40"
+                    : "ring-1 ring-primary/20 hover:ring-primary/40"
+                }`}
+                title="Abrir historico de confrontos"
+                aria-label={`Abrir historico de confrontos de ${row.name}`}
+              >
+                <UserAvatar
+                  name={row.name}
+                  src={row.player.avatarUrl}
+                  size="clamp(26px, 8vw, 36px)"
+                  sizes="36px"
+                />
+                <span className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full border border-background bg-primary text-primary-foreground shadow-sm transition-transform group-hover:scale-105 sm:size-[18px]">
+                  <Eye className="size-2.5 sm:size-3" />
+                </span>
+              </button>
+            )}
             <div className="min-w-0 space-y-1.5">
               <div className="flex min-w-0 items-center gap-1.5">
                 <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
@@ -426,7 +556,10 @@ const RankingPlayerCard = memo(
                 <Button
                   className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
                   disabled={row.challengeDisabled || isActionLoading}
-                  onClick={() => onChallenge(row.player.userId)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onChallenge(row.player.userId)
+                  }}
                   aria-label="Desafiar"
                 >
                   <Swords className="size-4 sm:hidden" />
@@ -440,7 +573,10 @@ const RankingPlayerCard = memo(
                   className="h-8 w-8 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
                   size="sm"
                   variant="outline"
-                  onClick={() => onOpenEdit(row.player)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenEdit(row.player)
+                  }}
                   aria-label="Editar"
                 >
                   <Pencil className="size-3.5 sm:size-4" />
@@ -455,6 +591,7 @@ const RankingPlayerCard = memo(
   },
   (prev, next) =>
     prev.row === next.row &&
+    prev.isSelected === next.isSelected &&
     prev.editing === next.editing &&
     prev.isDragging === next.isDragging &&
     prev.isActionLoading === next.isActionLoading &&
@@ -464,7 +601,13 @@ const RankingPlayerCard = memo(
 export default function RankingList() {
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [selectedId, setSelectedId] = useState<string>("")
+  const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
   const [playersData, setPlayersData] = useState<PlayersResponse | null>(null)
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [historyModalData, setHistoryModalData] =
+    useState<PlayerHistoryResponse | null>(null)
+  const [historyModalLoading, setHistoryModalLoading] = useState(false)
+  const [historyModalError, setHistoryModalError] = useState<string | null>(null)
   const [loadingRankings, setLoadingRankings] = useState(true)
   const [loadingPlayers, setLoadingPlayers] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -510,6 +653,11 @@ export default function RankingList() {
     setAdminMonth("")
     setNextRoundMonth("")
     setRolloverAll(false)
+    setSelectedPlayerId(null)
+    setHistoryModalOpen(false)
+    setHistoryModalData(null)
+    setHistoryModalLoading(false)
+    setHistoryModalError(null)
     setEditingPlayer(null)
     setEditSaving(false)
     setEditError(null)
@@ -536,6 +684,18 @@ export default function RankingList() {
     setSelectedId(nextId)
     resetSelectionState()
   }, [resetSelectionState, selectedId])
+
+  const handleSelectPlayer = useCallback((playerId: number) => {
+    if (editing) return
+    setSelectedPlayerId(playerId)
+    setHistoryModalOpen(true)
+  }, [editing])
+
+  const closeHistoryModal = useCallback(() => {
+    setHistoryModalOpen(false)
+    setHistoryModalLoading(false)
+    setHistoryModalError(null)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -682,6 +842,72 @@ export default function RankingList() {
     prefetchApiGet("/api/challenges/months", { minIntervalMs: 25_000 })
   }, [playersData])
 
+  useEffect(() => {
+    if (!playersData) {
+      setSelectedPlayerId(null)
+      return
+    }
+
+    const players = [...playersData.players, ...playersData.suspended]
+    if (!players.length) {
+      setSelectedPlayerId(null)
+      return
+    }
+
+    setSelectedPlayerId((current) => {
+      if (current && players.some((player) => player.userId === current)) {
+        return current
+      }
+      const viewer = players.find((player) => player.userId === playersData.viewerId)
+      return (viewer ?? players[0]).userId
+    })
+  }, [playersData])
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadPlayerHistory = async () => {
+      if (!historyModalOpen || !playersData || !selectedPlayerId) return
+
+      const rankingId = playersData.ranking.id
+      const monthValue = playersData.month?.value
+
+      setHistoryModalLoading(true)
+      setHistoryModalError(null)
+      setHistoryModalData(null)
+      const params = new URLSearchParams()
+      if (monthValue) {
+        params.set("month", monthValue)
+      }
+      const response = await apiGet<PlayerHistoryResponse>(
+        `/api/rankings/${rankingId}/players/${selectedPlayerId}/history${
+          params.toString() ? `?${params.toString()}` : ""
+        }`
+      )
+
+      if (!mounted) return
+      if (!response.ok) {
+        if (isUnauthorizedMessage(response.message)) {
+          redirectToLogin()
+          return
+        }
+        setHistoryModalError(response.message)
+        setHistoryModalLoading(false)
+        return
+      }
+
+      setHistoryModalData(response.data)
+      setHistoryModalError(null)
+      setHistoryModalLoading(false)
+    }
+
+    loadPlayerHistory()
+
+    return () => {
+      mounted = false
+    }
+  }, [historyModalOpen, playersData, redirectToLogin, selectedPlayerId])
+
   const openMonthValue = playersData?.currentMonth ?? ""
   const requestedMonthValue = playersData?.month?.value ?? ""
   const selectedAdminMonth = adminMonth || requestedMonthValue
@@ -697,6 +923,16 @@ export default function RankingList() {
     [draftPlayers, editing, playersData?.players]
   )
   const deferredActivePlayers = useDeferredValue(activePlayers)
+  const listedPlayers = useMemo(
+    () => playersData?.players ?? [],
+    [playersData?.players]
+  )
+  const selectedPlayer = useMemo(() => {
+    if (!selectedPlayerId) return null
+    return (
+      listedPlayers.find((player) => player.userId === selectedPlayerId) ?? null
+    )
+  }, [listedPlayers, selectedPlayerId])
 
   const viewerEntry = useMemo(() => {
     if (!playersData) return null
@@ -1370,10 +1606,12 @@ export default function RankingList() {
         <RankingPlayerCard
           key={row.player.userId}
           row={row}
+          isSelected={selectedPlayerId === row.player.userId}
           editing={editing}
           isDragging={draggingId === row.player.userId}
           isActionLoading={actionLoading === row.player.userId}
           countdownText={row.showCountdown ? countdownText : ""}
+          onOpenHistory={handleSelectPlayer}
           onChallenge={handleChallenge}
           onOpenEdit={openEditModal}
           onDragStart={handleDragStart}
@@ -1387,11 +1625,13 @@ export default function RankingList() {
       countdownText,
       draggingId,
       editing,
+      handleSelectPlayer,
       handleChallenge,
       handleDragEnd,
       handleDragOver,
       handleDragStart,
       openEditModal,
+      selectedPlayerId,
     ]
   )
 
@@ -1656,7 +1896,176 @@ export default function RankingList() {
                 </p>
               )}
             </div>
+
           </div>
+          {historyModalOpen ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={closeHistoryModal}
+              />
+              <Card className="relative z-10 w-full max-w-3xl shadow-lg">
+                <CardHeader className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="text-lg">
+                      Historico de confrontos
+                    </CardTitle>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {historyModalData?.player.name ??
+                        (selectedPlayer
+                          ? formatName(
+                              selectedPlayer.firstName,
+                              selectedPlayer.lastName,
+                              selectedPlayer.nickname
+                            )
+                          : "Jogador selecionado")}
+                    </p>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={closeHistoryModal}
+                    aria-label="Fechar"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="max-h-[75vh] space-y-4 overflow-y-auto">
+                  {historyModalLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-28 w-full" />
+                      <Skeleton className="h-28 w-full" />
+                    </div>
+                  ) : historyModalError ? (
+                    <p className="text-sm text-destructive">{historyModalError}</p>
+                  ) : historyModalData ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                        <UserAvatar
+                          name={historyModalData.player.name}
+                          src={historyModalData.player.avatarUrl}
+                          size="36px"
+                          sizes="36px"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {historyModalData.player.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Posicao atual:{" "}
+                            {selectedPlayer && selectedPlayer.position > 0
+                              ? `#${selectedPlayer.position}`
+                              : "-"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {historyModalData.months.map((monthBlock) => (
+                          <Card key={monthBlock.month.value} className="shadow-none">
+                            <CardHeader className="pb-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <CardTitle className="text-sm">
+                                  {monthBlock.month.label}
+                                </CardTitle>
+                                <StatPill
+                                  label={
+                                    monthBlock.wasBluePoint
+                                      ? "Foi ponto azul"
+                                      : "Nao foi ponto azul"
+                                  }
+                                  tone={monthBlock.wasBluePoint ? "info" : "neutral"}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                              <div className="flex flex-wrap gap-2">
+                                <StatPill
+                                  label={`${monthBlock.stats.total} jogos`}
+                                  tone="neutral"
+                                  className="text-xs"
+                                />
+                                <StatPill
+                                  label={`${monthBlock.stats.wins} vitorias`}
+                                  tone="success"
+                                  className="text-xs"
+                                />
+                                <StatPill
+                                  label={`${monthBlock.stats.losses} derrotas`}
+                                  tone="danger"
+                                  className="text-xs"
+                                />
+                                <StatPill
+                                  label={`${monthBlock.stats.pending} pendentes`}
+                                  tone="warning"
+                                  className="text-xs"
+                                />
+                              </div>
+
+                              {monthBlock.items.length ? (
+                                <div className="space-y-2">
+                                  {monthBlock.items.map((challenge) => {
+                                    const selectedIsChallenger =
+                                      challenge.challenger.id ===
+                                      historyModalData.player.userId
+                                    const opponent = selectedIsChallenger
+                                      ? challenge.challenged
+                                      : challenge.challenger
+                                    const challengeDate =
+                                      challenge.playedAt ?? challenge.scheduledFor
+                                    return (
+                                      <div
+                                        key={`history-${monthBlock.month.value}-${challenge.id}`}
+                                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                                      >
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-medium text-foreground">
+                                            {selectedIsChallenger
+                                              ? "vs "
+                                              : "Desafiado por "}
+                                            {opponent.name}
+                                          </p>
+                                          <p className="text-xs text-muted-foreground">
+                                            {getChallengeScoreLabel(challenge)} ·{" "}
+                                            {formatChallengeDateTime(challengeDate)}
+                                          </p>
+                                        </div>
+                                        <StatPill
+                                          label={getPlayerChallengeLabel(
+                                            challenge,
+                                            historyModalData.player.userId
+                                          )}
+                                          tone={getPlayerChallengeTone(
+                                            challenge,
+                                            historyModalData.player.userId
+                                          )}
+                                          className="text-xs"
+                                        />
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  Sem confrontos neste mes.
+                                </p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Sem dados de historico para este jogador.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
           {editingPlayer ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
               <div
