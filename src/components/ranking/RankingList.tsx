@@ -1,6 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react"
+import {
+  memo,
+  useDeferredValue,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react"
 import Link from "next/link"
 import { GripVertical, Pencil, Swords, Users, X } from "lucide-react"
 
@@ -18,7 +27,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { apiGet, apiPatch, apiPost } from "@/lib/http"
+import { apiGet, apiPatch, apiPost, type ApiResult } from "@/lib/http"
+import { prefetchApiGet } from "@/lib/http-prefetch"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 import {
   nowInAppTimeZone,
@@ -39,6 +49,14 @@ const resultTone = {
   pending: "warning",
 } as const
 
+const statusLabelMap: Record<PlayerSummary["status"], string> = {
+  scheduled: "Pendente",
+  accepted: "Aceito",
+  declined: "Recusado",
+  completed: "Concluido",
+  cancelled: "Cancelado",
+}
+
 type RankingItem = {
   id: number
   name: string
@@ -49,10 +67,6 @@ type RankingItem = {
 }
 
 type PlayerSummary = {
-  role: "challenger" | "challenged"
-  roleLabel: string
-  opponentName: string
-  position: number | null
   status: "scheduled" | "accepted" | "declined" | "completed" | "cancelled"
   result: "win" | "loss" | "pending"
 }
@@ -61,7 +75,6 @@ type PlayerItem = {
   membershipId: number
   userId: number
   position: number
-  points: number
   firstName: string
   lastName: string
   nickname: string | null
@@ -69,7 +82,6 @@ type PlayerItem = {
   isBluePoint: boolean
   isAccessChallenge: boolean
   isSuspended: boolean
-  isLocked: boolean
   summary: PlayerSummary | null
 }
 
@@ -121,12 +133,337 @@ const formatAdminIssues = (issues: unknown) => {
 }
 
 const nextMonthValue = (value: string) => shiftMonthValue(value, 1)
+const isUnauthorizedMessage = (message: string) =>
+  /nao autorizado|não autorizado|unauthorized/i.test(message)
 
-export type RankingListProps = {
-  isAdmin?: boolean
+const formatCategoryCardName = (name?: string | null, slug?: string) => {
+  const normalizedName = typeof name === "string" ? name.trim() : ""
+  const cleaned = normalizedName.replace(/^ranking\s+/i, "").trim()
+  if (cleaned) return cleaned
+  if (normalizedName) return normalizedName
+  if (slug) return slug.replace(/-/g, " ").trim()
+  return "Categoria"
 }
 
-export default function RankingList({ isAdmin = false }: RankingListProps) {
+const getCountdownTickMs = (remainingMs: number) => {
+  if (remainingMs > 6 * 60 * 60 * 1000) return 5 * 60_000
+  if (remainingMs > 60 * 60 * 1000) return 2 * 60_000
+  if (remainingMs > 10 * 60 * 1000) return 60_000
+  if (remainingMs > 2 * 60 * 1000) return 30_000
+  if (remainingMs > 60 * 1000) return 10_000
+  return 1_000
+}
+
+const formatCountdownLabel = (remainingMs: number) => {
+  const totalSeconds = Math.ceil(remainingMs / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const hh = String(hours).padStart(2, "0")
+  const mm = String(minutes).padStart(2, "0")
+  const ss = String(seconds).padStart(2, "0")
+  return hours > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+const PLAYERS_CACHE_TTL_MS = 30_000
+const RANKINGS_CACHE_TTL_MS = 180_000
+const MAX_PLAYERS_CLIENT_CACHE_ENTRIES = 80
+
+type PlayersCacheEntry = {
+  data: PlayersResponse
+  cachedAt: number
+}
+
+type RankingsCacheEntry = {
+  data: RankingItem[]
+  cachedAt: number
+}
+
+let rankingsCache: RankingsCacheEntry | null = null
+const playersCacheStore = new Map<string, PlayersCacheEntry>()
+const playersInFlightStore = new Map<string, Promise<ApiResult<PlayersResponse>>>()
+
+const writePlayersClientCache = (cacheKey: string, data: PlayersResponse) => {
+  if (playersCacheStore.size >= MAX_PLAYERS_CLIENT_CACHE_ENTRIES) {
+    const oldestKey = playersCacheStore.keys().next().value
+    if (oldestKey) {
+      playersCacheStore.delete(oldestKey)
+    }
+  }
+  playersCacheStore.set(cacheKey, {
+    data,
+    cachedAt: nowInAppTimeZone().getTime(),
+  })
+}
+
+const primePlayersClientCache = (rankingId: string) => {
+  const cacheKey = `${rankingId}:open`
+  const now = nowInAppTimeZone().getTime()
+  const cached = playersCacheStore.get(cacheKey)
+  if (cached && now - cached.cachedAt <= PLAYERS_CACHE_TTL_MS) {
+    return
+  }
+  if (playersInFlightStore.has(cacheKey)) {
+    return
+  }
+
+  const pending = apiGet<PlayersResponse>(`/api/rankings/${rankingId}/players`)
+    .then((response) => {
+      if (response.ok) {
+        writePlayersClientCache(cacheKey, response.data)
+      }
+      return response
+    })
+    .finally(() => {
+      if (playersInFlightStore.get(cacheKey) === pending) {
+        playersInFlightStore.delete(cacheKey)
+      }
+    })
+
+  playersInFlightStore.set(cacheKey, pending)
+}
+
+const invalidatePlayersCacheForRanking = (rankingId: string) => {
+  for (const key of playersCacheStore.keys()) {
+    if (key.startsWith(`${rankingId}:`)) {
+      playersCacheStore.delete(key)
+    }
+  }
+}
+
+const primeTopRankingsCache = (rankings: RankingItem[]) => {
+  if (!rankings.length) return
+  rankings
+    .slice(0, 3)
+    .map((ranking) => String(ranking.id))
+    .forEach((rankingId) => {
+      primePlayersClientCache(rankingId)
+    })
+}
+
+const getCategoryGridClassName = (count: number) => {
+  if (count <= 1) return "grid grid-cols-1 gap-2 sm:gap-3"
+  if (count === 2) return "grid grid-cols-2 gap-2 sm:gap-3"
+  if (count === 3) return "grid grid-cols-2 gap-2 md:grid-cols-3 sm:gap-3"
+  if (count === 4) return "grid grid-cols-2 gap-2 md:grid-cols-4 sm:gap-3"
+  if (count === 5) return "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5 sm:gap-3"
+  return "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5 sm:gap-3"
+}
+
+const sortRankingsByMembership = (a: RankingItem, b: RankingItem) => {
+  const membershipDiff =
+    Number(Boolean(b.isUserMember)) - Number(Boolean(a.isUserMember))
+  if (membershipDiff !== 0) return membershipDiff
+  return a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" })
+}
+
+type RankingCategoryCardProps = {
+  category: RankingItem
+  isSelected: boolean
+  onSelect: (id: string) => void
+}
+
+type PlayerStatusBadge = {
+  label: string
+  tone: StatPillTone
+  className?: string
+}
+
+type ActivePlayerCardView = {
+  player: PlayerItem
+  name: string
+  positionLabel: string
+  statusBadges: PlayerStatusBadge[]
+  canChallenge: boolean
+  showCountdown: boolean
+  showAdminEdit: boolean
+  cardClassName: string
+}
+
+const RankingCategoryCard = memo(function RankingCategoryCard({
+  category,
+  isSelected,
+  onSelect,
+}: RankingCategoryCardProps) {
+  const categoryName =
+    formatCategoryCardName(category.name, category.slug) ||
+    (category.slug ? category.slug.replace(/-/g, " ").trim() : "") ||
+    `Categoria ${category.id}`
+  const selectedClass = isSelected
+    ? "relative min-h-[74px] cursor-pointer gap-0 p-0 border-primary/70 bg-primary/12 shadow-none ring-1 ring-primary/35 transition-colors"
+    : category.isUserMember
+    ? "relative min-h-[74px] cursor-pointer gap-0 p-0 border-primary/45 bg-primary/10 shadow-none ring-1 ring-primary/25 transition-colors"
+    : "relative min-h-[74px] cursor-pointer gap-0 p-0 shadow-none transition-colors hover:border-primary/25"
+
+  return (
+    <Card
+      className={selectedClass}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(String(category.id))}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          onSelect(String(category.id))
+        }
+      }}
+    >
+      <div className="flex h-full min-w-0 flex-col justify-between gap-1 px-3 py-2">
+        <p
+          className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold leading-none text-slate-900 dark:text-slate-100 sm:text-base"
+          title={categoryName}
+        >
+          {categoryName}
+        </p>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <Users className="size-3.5 shrink-0" />
+            <span className="truncate">{category.activePlayers} ativos</span>
+          </div>
+          {category.isUserMember ? (
+            <StatPill
+              label="Inscrito"
+              tone="info"
+              className="shrink-0 px-1.5 py-0 text-[10px]"
+            />
+          ) : null}
+        </div>
+      </div>
+    </Card>
+  )
+})
+
+type RankingPlayerCardProps = {
+  row: ActivePlayerCardView
+  editing: boolean
+  isDragging: boolean
+  isActionLoading: boolean
+  countdownText: string
+  onChallenge: (playerId: number) => void
+  onOpenEdit: (player: PlayerItem) => void
+  onDragStart: (event: DragEvent<HTMLDivElement>, playerId: number) => void
+  onDragOver: (event: DragEvent<HTMLDivElement>, playerId: number) => void
+  onDragEnd: () => void
+}
+
+const RankingPlayerCard = memo(
+  function RankingPlayerCard({
+    row,
+    editing,
+    isDragging,
+    isActionLoading,
+    countdownText,
+    onChallenge,
+    onOpenEdit,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+  }: RankingPlayerCardProps) {
+    const badgeClassName =
+      "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
+
+    return (
+      <Card
+        className={`shadow-none ${
+          editing ? "cursor-grab border-dashed" : ""
+        } py-2 sm:py-6 [content-visibility:auto] [contain-intrinsic-size:120px] ${row.cardClassName} ${
+          isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
+        }`}
+        draggable={editing}
+        onDragStart={(event) => onDragStart(event, row.player.userId)}
+        onDragOver={(event) => onDragOver(event, row.player.userId)}
+        onDrop={onDragEnd}
+        onDragEnd={onDragEnd}
+        aria-grabbed={editing && isDragging}
+      >
+        <CardContent className="flex items-start justify-between gap-2 px-3 sm:items-center sm:gap-3 sm:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-4">
+            {editing ? (
+              <div className="flex size-6 items-center justify-center text-muted-foreground sm:size-8">
+                <GripVertical className="size-3.5 sm:size-5" />
+              </div>
+            ) : null}
+            <UserAvatar
+              name={row.name}
+              src={row.player.avatarUrl}
+              size="clamp(26px, 8vw, 36px)"
+              sizes="36px"
+            />
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
+                  {row.positionLabel}
+                </div>
+                <p className="truncate text-[12px] font-semibold text-foreground sm:text-sm sm:whitespace-normal">
+                  {row.name}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {row.statusBadges.length ? (
+                  row.statusBadges.map((status) => (
+                    <StatPill
+                      key={`${row.player.userId}-${status.label}`}
+                      label={status.label}
+                      tone={status.tone}
+                      className={status.className}
+                    />
+                  ))
+                ) : (
+                  <StatPill
+                    label="Sem historico"
+                    tone="neutral"
+                    className={badgeClassName}
+                  />
+                )}
+              </div>
+              {row.showCountdown && countdownText ? (
+                <p className="text-[10px] font-semibold text-destructive sm:text-xs">
+                  {countdownText}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {row.canChallenge || row.showAdminEdit ? (
+            <div className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 sm:w-auto sm:flex-row sm:items-center">
+              {row.canChallenge ? (
+                <Button
+                  className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
+                  disabled={isActionLoading}
+                  onClick={() => onChallenge(row.player.userId)}
+                  aria-label="Desafiar"
+                >
+                  <Swords className="size-4 sm:hidden" />
+                  <span className="hidden sm:inline">
+                    {isActionLoading ? "Enviando..." : "Desafiar"}
+                  </span>
+                </Button>
+              ) : null}
+              {row.showAdminEdit ? (
+                <Button
+                  className="h-8 w-8 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onOpenEdit(row.player)}
+                  aria-label="Editar"
+                >
+                  <Pencil className="size-3.5 sm:size-4" />
+                  <span className="hidden sm:inline">Editar</span>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    )
+  },
+  (prev, next) =>
+    prev.row === next.row &&
+    prev.editing === next.editing &&
+    prev.isDragging === next.isDragging &&
+    prev.isActionLoading === next.isActionLoading &&
+    prev.countdownText === next.countdownText
+)
+
+export default function RankingList() {
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [selectedId, setSelectedId] = useState<string>("")
   const [playersData, setPlayersData] = useState<PlayersResponse | null>(null)
@@ -148,8 +485,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     "recalculate" | "rollover" | "restore" | null
   >(null)
   const [rolloverAll, setRolloverAll] = useState(false)
-  const [now, setNow] = useState(() => Date.now())
+  const [phaseNow, setPhaseNow] = useState(() => Date.now())
   const [serverOffsetMs, setServerOffsetMs] = useState(0)
+  const [countdownText, setCountdownText] = useState("")
   const [releaseFlashAt, setReleaseFlashAt] = useState<number | null>(null)
   const [editingPlayer, setEditingPlayer] = useState<PlayerItem | null>(null)
   const [editForm, setEditForm] = useState({
@@ -159,11 +497,11 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
-  const canManage = Boolean(isAdmin && playersData?.canManage)
-  const canManageAll = Boolean(canManage && playersData?.canManageAll)
-  const getNow = useCallback(() => Date.now() + serverOffsetMs, [serverOffsetMs])
+  const playersDataRef = useRef<PlayersResponse | null>(null)
+  const canManage = Boolean(playersData?.canManage)
+  const canManageAll = Boolean(playersData?.canManageAll)
 
-  const resetSelectionState = () => {
+  const resetSelectionState = useCallback(() => {
     setEditing(false)
     setDraftPlayers([])
     setReorderError(null)
@@ -177,37 +515,69 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setEditingPlayer(null)
     setEditSaving(false)
     setEditError(null)
-  }
+  }, [])
 
-  const handleSelectRanking = (nextId: string) => {
+  const redirectToLogin = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login"
+    }
+  }, [])
+
+  useEffect(() => {
+    playersDataRef.current = playersData
+  }, [playersData])
+
+  useEffect(() => {
+    if (loadError && isUnauthorizedMessage(loadError)) {
+      redirectToLogin()
+    }
+  }, [loadError, redirectToLogin])
+
+  const handleSelectRanking = useCallback((nextId: string) => {
     if (nextId === selectedId) return
     setSelectedId(nextId)
     resetSelectionState()
-  }
+  }, [resetSelectionState, selectedId])
 
   useEffect(() => {
     let mounted = true
 
     const loadRankings = async () => {
+      const now = nowInAppTimeZone().getTime()
+      if (rankingsCache && now - rankingsCache.cachedAt <= RANKINGS_CACHE_TTL_MS) {
+        const ordered = rankingsCache.data
+        const firstRankingId = ordered[0] ? String(ordered[0].id) : ""
+        primeTopRankingsCache(ordered)
+        setRankings(ordered)
+        setSelectedId((current) => current || firstRankingId)
+        setLoadingRankings(false)
+        return
+      }
+
       setLoadingRankings(true)
       setLoadError(null)
       const response = await apiGet<RankingItem[]>("/api/rankings")
       if (!mounted) return
 
       if (!response.ok) {
+        if (isUnauthorizedMessage(response.message)) {
+          redirectToLogin()
+          return
+        }
         setLoadError(response.message)
         setLoadingRankings(false)
         return
       }
 
-      const ordered = [
-        ...response.data.filter((item) => item.isUserMember),
-        ...response.data.filter((item) => !item.isUserMember),
-      ]
+      const ordered = [...response.data].sort(sortRankingsByMembership)
+      const firstRankingId = ordered[0] ? String(ordered[0].id) : ""
+      primeTopRankingsCache(ordered)
+      rankingsCache = {
+        data: ordered,
+        cachedAt: Date.now(),
+      }
       setRankings(ordered)
-      setSelectedId((current) =>
-        current || (ordered[0] ? String(ordered[0].id) : "")
-      )
+      setSelectedId((current) => current || firstRankingId)
       setLoadingRankings(false)
     }
 
@@ -216,15 +586,13 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [redirectToLogin])
 
   useEffect(() => {
     let mounted = true
 
     const loadPlayers = async () => {
       if (!selectedId) return
-      setLoadingPlayers(true)
-      setLoadError(null)
       const params = new URLSearchParams()
       if (adminMonth) {
         params.set("month", adminMonth)
@@ -232,10 +600,53 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       const url = params.toString()
         ? `/api/rankings/${selectedId}/players?${params.toString()}`
         : `/api/rankings/${selectedId}/players`
-      const response = await apiGet<PlayersResponse>(url)
+
+      const cacheKey = `${selectedId}:${adminMonth || "open"}`
+      const cached = playersCacheStore.get(cacheKey)
+      const now = nowInAppTimeZone().getTime()
+      if (cached && now - cached.cachedAt <= PLAYERS_CACHE_TTL_MS) {
+        setPlayersData(cached.data)
+        setLoadingPlayers(false)
+        return
+      }
+      const pendingCached = playersInFlightStore.get(cacheKey)
+      if (pendingCached) {
+        const pendingResult = await pendingCached
+        if (!mounted) return
+        if (!pendingResult.ok) {
+          if (isUnauthorizedMessage(pendingResult.message)) {
+            redirectToLogin()
+            return
+          }
+          setLoadError(pendingResult.message)
+          setLoadingPlayers(false)
+          return
+        }
+        writePlayersClientCache(cacheKey, pendingResult.data)
+        setPlayersData(pendingResult.data)
+        setLoadingPlayers(false)
+        return
+      }
+
+      const preserveUi = Boolean(playersDataRef.current)
+      if (!preserveUi) {
+        setLoadingPlayers(true)
+      }
+      setLoadError(null)
+      const pending = apiGet<PlayersResponse>(url).finally(() => {
+        if (playersInFlightStore.get(cacheKey) === pending) {
+          playersInFlightStore.delete(cacheKey)
+        }
+      })
+      playersInFlightStore.set(cacheKey, pending)
+      const response = await pending
       if (!mounted) return
 
       if (!response.ok) {
+        if (isUnauthorizedMessage(response.message)) {
+          redirectToLogin()
+          return
+        }
         setLoadError(response.message)
         setLoadingPlayers(false)
         return
@@ -245,11 +656,12 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
         ? new Date(response.data.serverNow).getTime()
         : Number.NaN
       if (!Number.isNaN(serverNowMs)) {
-        const offset = serverNowMs - Date.now()
+        const offset = serverNowMs - now
         setServerOffsetMs(offset)
-        setNow(Date.now() + offset)
+        setPhaseNow(now + offset)
       }
 
+      writePlayersClientCache(cacheKey, response.data)
       setPlayersData(response.data)
       setLoadingPlayers(false)
     }
@@ -259,7 +671,18 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     return () => {
       mounted = false
     }
-  }, [selectedId, adminMonth])
+  }, [selectedId, adminMonth, redirectToLogin])
+
+  useEffect(() => {
+    if (!playersData) return
+    const monthValue = playersData.month?.value
+    if (monthValue) {
+      prefetchApiGet(`/api/challenges?month=${monthValue}&sort=recent`, {
+        minIntervalMs: 25_000,
+      })
+    }
+    prefetchApiGet("/api/challenges/months", { minIntervalMs: 25_000 })
+  }, [playersData])
 
   const openMonthValue = playersData?.currentMonth ?? ""
   const requestedMonthValue = playersData?.month?.value ?? ""
@@ -271,14 +694,20 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
   const allowedMax =
     adminMonth && adminMonth > allowedMaxBase ? adminMonth : allowedMaxBase
 
-  const activePlayers = editing
-    ? draftPlayers
-    : playersData?.players ?? []
+  const activePlayers = useMemo(
+    () => (editing ? draftPlayers : playersData?.players ?? []),
+    [draftPlayers, editing, playersData?.players]
+  )
+  const deferredActivePlayers = useDeferredValue(activePlayers)
 
-  const viewerEntry =
-    playersData?.players.find((player) => player.userId === playersData.viewerId) ??
-    playersData?.suspended.find((player) => player.userId === playersData.viewerId) ??
-    null
+  const viewerEntry = useMemo(() => {
+    if (!playersData) return null
+    return (
+      playersData.players.find((player) => player.userId === playersData.viewerId) ??
+      playersData.suspended.find((player) => player.userId === playersData.viewerId) ??
+      null
+    )
+  }, [playersData])
   const viewerPosition = viewerEntry?.position ?? 0
   const viewerIsBlue = Boolean(viewerEntry?.isBluePoint)
   const viewerIsAccess = Boolean(viewerEntry?.isAccessChallenge)
@@ -313,55 +742,69 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     return { deadline: null as number | null, label: "" }
   }, [playersData, phase, viewerIsBlue, blueStartAt, openStartAt])
 
-  useEffect(() => {
-    if (!countdownInfo.deadline) return
-    if (getNow() >= countdownInfo.deadline) {
-      setNow(getNow())
-      return
-    }
-    const interval = setInterval(() => setNow(getNow()), 1000)
-    return () => clearInterval(interval)
-  }, [countdownInfo.deadline, getNow])
-
-  const countdownLabel = useMemo(() => {
-    if (!countdownInfo.deadline) return null
-    const remainingMs = countdownInfo.deadline - now
-    if (remainingMs <= 0) return "00:00"
-    const totalSeconds = Math.ceil(remainingMs / 1000)
-    const hours = Math.floor(totalSeconds / 3600)
-    const minutes = Math.floor((totalSeconds % 3600) / 60)
-    const seconds = totalSeconds % 60
-    const hh = String(hours).padStart(2, "0")
-    const mm = String(minutes).padStart(2, "0")
-    const ss = String(seconds).padStart(2, "0")
-    return hours > 0 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`
-  }, [countdownInfo.deadline, now])
-
-  const countdownText =
-    countdownLabel && countdownInfo.label
-      ? `${countdownInfo.label} ${countdownLabel}`
-      : null
+  const shouldTrackCountdown =
+    Boolean(countdownInfo.deadline) &&
+    !viewerIsSuspended &&
+    !viewerHasChallenge &&
+    activePlayers.length > 0
 
   useEffect(() => {
     const deadline = countdownInfo.deadline
-    if (!deadline) return
-    if (getNow() >= deadline) return
-    const timeout = setTimeout(() => {
-      const currentNow = getNow()
-      setNow(currentNow)
-      if (currentNow >= deadline) {
-        setReleaseFlashAt(currentNow)
+    const label = countdownInfo.label
+    if (!deadline || !label || !shouldTrackCountdown) {
+      setCountdownText("")
+      return
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    const tick = () => {
+      const remaining = deadline - (Date.now() + serverOffsetMs)
+      if (remaining <= 0) {
+        setCountdownText((previous) => (previous ? "" : previous))
+        return
       }
-    }, Math.max(0, deadline - getNow()) + 50)
+      const nextLabel = `${label} ${formatCountdownLabel(remaining)}`
+      setCountdownText((previous) =>
+        previous === nextLabel ? previous : nextLabel
+      )
+      timeout = setTimeout(tick, getCountdownTickMs(remaining))
+    }
+
+    tick()
+
+    return () => {
+      if (timeout) clearTimeout(timeout)
+    }
+  }, [
+    countdownInfo.deadline,
+    countdownInfo.label,
+    serverOffsetMs,
+    shouldTrackCountdown,
+  ])
+
+  useEffect(() => {
+    const deadline = countdownInfo.deadline
+    if (!deadline || !shouldTrackCountdown) return
+
+    const nowMs = Date.now() + serverOffsetMs
+    if (nowMs >= deadline) {
+      setReleaseFlashAt((prev) => prev ?? nowMs)
+      return
+    }
+
+    const timeout = setTimeout(() => {
+      setReleaseFlashAt((prev) => prev ?? Date.now() + serverOffsetMs)
+    }, Math.max(250, deadline - nowMs))
+
     return () => clearTimeout(timeout)
-  }, [countdownInfo.deadline, getNow])
+  }, [countdownInfo.deadline, serverOffsetMs, shouldTrackCountdown])
 
   useEffect(() => {
     if (!releaseFlashAt) return
     const timeout = setTimeout(() => setReleaseFlashAt(null), 2500)
     return () => clearTimeout(timeout)
   }, [releaseFlashAt])
-
 
   const parseRequiredTime = (value?: string | null) => {
     if (!value) return null
@@ -380,9 +823,42 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     }
   }, [playersData])
 
+  useEffect(() => {
+    if (!playersData) return
+    const nowMs = Date.now() + serverOffsetMs
+    setPhaseNow(nowMs)
+    const nextBoundary = [
+      windowTimes.roundStart,
+      windowTimes.blueStart,
+      windowTimes.blueEnd,
+      windowTimes.openStart,
+      windowTimes.openEnd,
+      windowTimes.roundEnd,
+    ]
+      .filter((time): time is number => time !== null && time > nowMs)
+      .sort((a, b) => a - b)[0]
+
+    if (!nextBoundary) return
+
+    const timeout = setTimeout(() => {
+      setPhaseNow(Date.now() + serverOffsetMs)
+    }, Math.max(500, nextBoundary - nowMs + 200))
+
+    return () => clearTimeout(timeout)
+  }, [
+    playersData,
+    serverOffsetMs,
+    windowTimes.blueEnd,
+    windowTimes.blueStart,
+    windowTimes.openEnd,
+    windowTimes.openStart,
+    windowTimes.roundEnd,
+    windowTimes.roundStart,
+  ])
+
   const clientPhase = useMemo(() => {
     if (!playersData) return null
-    const current = now
+    const current = phaseNow
     const roundStart = windowTimes.roundStart
     const roundEnd = windowTimes.roundEnd
     const blueStart = windowTimes.blueStart
@@ -401,7 +877,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     if (current < openStart) return "waiting_open"
     if (windowTimes.openEnd && current >= windowTimes.openEnd) return "after_open"
     return "open"
-  }, [playersData, now, windowTimes])
+  }, [phaseNow, playersData, windowTimes])
 
   const effectivePhase = clientPhase ?? playersData?.challengeWindow.phase ?? "open"
   const clientCanChallenge = effectivePhase === "blue" || effectivePhase === "open"
@@ -409,8 +885,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
   const canSaveOrder =
     editing && !!playersData && draftPlayers.length === playersData.players.length
-
-  const monthOptions = (() => {
+  const monthOptions = useMemo(() => {
     if (!playersData) return []
     const values = new Set<string>()
     if (playersData.months?.length) {
@@ -429,9 +904,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       options = options.filter((option) => option.value <= allowedMax)
     }
     return options
-  })()
+  }, [playersData, adminMonth, allowedMax])
 
-  const closeTargetOptions = (() => {
+  const closeTargetOptions = useMemo(() => {
     if (!selectedAdminMonth) return []
     const options: Array<{ value: string; label: string }> = []
     let cursor = nextMonthValue(selectedAdminMonth)
@@ -440,7 +915,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       cursor = nextMonthValue(cursor)
     }
     return options
-  })()
+  }, [selectedAdminMonth])
 
   useEffect(() => {
     if (!selectedAdminMonth) return
@@ -453,7 +928,11 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     })
   }, [selectedAdminMonth])
 
-  const refreshPlayers = async (rankingId?: number, monthOverride?: string) => {
+  const refreshPlayers = useCallback(async (
+    rankingId?: number,
+    monthOverride?: string,
+    options?: { bypassCache?: boolean }
+  ) => {
     const targetId = rankingId ? String(rankingId) : selectedId
     if (!targetId) return
     const params = new URLSearchParams()
@@ -461,25 +940,70 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     if (monthValue) {
       params.set("month", monthValue)
     }
+    if (options?.bypassCache) {
+      params.set("fresh", "1")
+    }
+    const cacheKey = `${targetId}:${monthValue || "open"}`
+    if (!options?.bypassCache) {
+      const cached = playersCacheStore.get(cacheKey)
+      const now = nowInAppTimeZone().getTime()
+      if (cached && now - cached.cachedAt <= PLAYERS_CACHE_TTL_MS) {
+        setPlayersData(cached.data)
+        return
+      }
+      const pendingCached = playersInFlightStore.get(cacheKey)
+      if (pendingCached) {
+        const pendingResult = await pendingCached
+        if (!pendingResult.ok) {
+          if (isUnauthorizedMessage(pendingResult.message)) {
+            redirectToLogin()
+            return
+          }
+          setLoadError(pendingResult.message)
+          setLoadingPlayers(false)
+          return
+        }
+        writePlayersClientCache(cacheKey, pendingResult.data)
+        setPlayersData(pendingResult.data)
+        return
+      }
+    } else {
+      invalidatePlayersCacheForRanking(targetId)
+    }
     const url = params.toString()
       ? `/api/rankings/${targetId}/players?${params.toString()}`
       : `/api/rankings/${targetId}/players`
-    setLoadingPlayers(true)
+    if (!playersDataRef.current) {
+      setLoadingPlayers(true)
+    }
     setLoadError(null)
 
-    const response = await apiGet<PlayersResponse>(url)
+    const pending = apiGet<PlayersResponse>(url, {
+      fresh: Boolean(options?.bypassCache),
+    })
+    playersInFlightStore.set(cacheKey, pending)
+    const response = await pending.finally(() => {
+      if (playersInFlightStore.get(cacheKey) === pending) {
+        playersInFlightStore.delete(cacheKey)
+      }
+    })
 
     if (!response.ok) {
+      if (isUnauthorizedMessage(response.message)) {
+        redirectToLogin()
+        return
+      }
       setLoadError(response.message)
       setLoadingPlayers(false)
       return
     }
 
+    writePlayersClientCache(cacheKey, response.data)
     setPlayersData(response.data)
     setLoadingPlayers(false)
-  }
+  }, [adminMonth, redirectToLogin, selectedId])
 
-  const openEditModal = (player: PlayerItem) => {
+  const openEditModal = useCallback((player: PlayerItem) => {
     if (!canManage) return
     setEditingPlayer(player)
     setEditForm({
@@ -488,15 +1012,15 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       isAccessChallenge: Boolean(player.isAccessChallenge),
     })
     setEditError(null)
-  }
+  }, [canManage])
 
-  const closeEditModal = () => {
+  const closeEditModal = useCallback(() => {
     setEditingPlayer(null)
     setEditSaving(false)
     setEditError(null)
-  }
+  }, [])
 
-  const handleSavePlayer = async () => {
+  const handleSavePlayer = useCallback(async () => {
     if (!editingPlayer || !playersData) return
     if (!editingPlayer.membershipId) {
       setEditError("Vinculo do jogador nao encontrado.")
@@ -524,12 +1048,12 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return
     }
 
-    await refreshPlayers(playersData.ranking.id, adminMonth)
+    await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
     setEditSaving(false)
     setEditingPlayer(null)
-  }
+  }, [adminMonth, editForm.isAccessChallenge, editForm.isBluePoint, editForm.isSuspended, editingPlayer, playersData, refreshPlayers])
 
-  const handleChallenge = async (playerId: number) => {
+  const handleChallenge = useCallback(async (playerId: number) => {
     if (!playersData) return
     setActionLoading(playerId)
     setActionError(null)
@@ -548,11 +1072,11 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return
     }
 
-    await refreshPlayers(playersData.ranking.id, adminMonth)
+    await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
     setActionLoading(null)
-  }
+  }, [adminMonth, playersData, refreshPlayers])
 
-  const handleEditToggle = () => {
+  const handleEditToggle = useCallback(() => {
     if (!playersData || !canManage) return
     if (!isOpenMonthSelected) {
       setReorderError("A ordenacao manual so pode ser feita no mes atual.")
@@ -567,9 +1091,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setEditing(false)
     setDraftPlayers([])
     setReorderError(null)
-  }
+  }, [canManage, editing, isOpenMonthSelected, playersData])
 
-  const handleDragStart = (
+  const handleDragStart = useCallback((
     event: DragEvent<HTMLDivElement>,
     playerId: number
   ) => {
@@ -577,9 +1101,9 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     setDraggingId(playerId)
     event.dataTransfer.effectAllowed = "move"
     event.dataTransfer.setData("text/plain", String(playerId))
-  }
+  }, [editing])
 
-  const handleDragOver = (
+  const handleDragOver = useCallback((
     event: DragEvent<HTMLDivElement>,
     overId: number
   ) => {
@@ -594,13 +1118,13 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       next.splice(newIndex, 0, moved)
       return next
     })
-  }
+  }, [draggingId, editing])
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDraggingId(null)
-  }
+  }, [])
 
-  const handleSaveOrder = async () => {
+  const handleSaveOrder = useCallback(async () => {
     if (!playersData || !editing) return
     if (!isOpenMonthSelected) {
       setReorderError("A ordenacao manual so pode ser feita no mes atual.")
@@ -624,22 +1148,22 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
       return
     }
 
-    await refreshPlayers(playersData.ranking.id, adminMonth)
+    await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
 
     setEditing(false)
     setDraftPlayers([])
     setDraggingId(null)
     setReorderLoading(false)
-  }
+  }, [adminMonth, draftPlayers, editing, isOpenMonthSelected, playersData, refreshPlayers, selectedAdminMonth])
 
-  const handleCancelOrder = () => {
+  const handleCancelOrder = useCallback(() => {
     setEditing(false)
     setDraftPlayers([])
     setReorderError(null)
     setDraggingId(null)
-  }
+  }, [])
 
-  const runAdminAction = async (
+  const runAdminAction = useCallback(async (
     action: "recalculate" | "rollover" | "restore"
   ) => {
     if (!playersData) return
@@ -698,29 +1222,193 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
     if (action === "rollover") {
       const nextMonth = nextRoundMonth || nextMonthValue(month)
       setAdminMonth(nextMonth)
-      await refreshPlayers(playersData.ranking.id, nextMonth)
+      await refreshPlayers(playersData.ranking.id, nextMonth, { bypassCache: true })
     } else {
-      await refreshPlayers(playersData.ranking.id, month)
+      await refreshPlayers(playersData.ranking.id, month, { bypassCache: true })
     }
     setAdminActionLoading(null)
-  }
+  }, [canManageAll, canRestore, nextRoundMonth, playersData, refreshPlayers, rolloverAll, selectedAdminMonth])
+
+  const categoryCards = useMemo(
+    () =>
+      rankings.map((category) => (
+        <RankingCategoryCard
+          key={category.id}
+          category={category}
+          isSelected={selectedId === String(category.id)}
+          onSelect={handleSelectRanking}
+        />
+      )),
+    [handleSelectRanking, rankings, selectedId]
+  )
+  const categoryGridClassName = useMemo(
+    () => getCategoryGridClassName(rankings.length),
+    [rankings.length]
+  )
+
+  const activePlayerViews = useMemo(() => {
+    return deferredActivePlayers.map((player, index) => {
+      const badgeClassName =
+        "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
+      const name = formatName(player.firstName, player.lastName, player.nickname)
+      const positionLabel = player.position > 0 ? `#${player.position}` : "-"
+      const statusBadges: PlayerStatusBadge[] = []
+
+      if (player.isBluePoint) {
+        statusBadges.push({
+          label: "Ponto azul",
+          tone: "info",
+          className:
+            `${badgeClassName} border-sky-400 bg-sky-500/90 text-white shadow-sm dark:border-sky-300 dark:bg-sky-400/90 dark:text-slate-900`,
+        })
+      }
+
+      if (player.isAccessChallenge) {
+        statusBadges.push({ label: "Acesso", tone: "neutral" })
+      }
+
+      if (player.summary) {
+        if (player.summary.result !== "pending") {
+          statusBadges.push({
+            label: player.summary.result === "win" ? "Vitoria" : "Derrota",
+            tone: resultTone[player.summary.result],
+            className: badgeClassName,
+          })
+        } else if (player.summary.status) {
+          statusBadges.push({
+            label: statusLabelMap[player.summary.status],
+            tone: statusTone[player.summary.status],
+            className: badgeClassName,
+          })
+        }
+      }
+
+      const isSelf = player.userId === (playersData?.viewerId ?? 0)
+      const showChallenge = !editing
+      const isBluePhase = effectivePhase === "blue"
+      const isOpenPhase = effectivePhase === "open"
+      const typeAllowed = viewerIsSuspended
+        ? false
+        : isBluePhase
+        ? viewerIsBlue
+        : isOpenPhase
+        ? !viewerIsBlue
+        : true
+      const targetBlueBlocked = isBluePhase && viewerIsBlue && player.isBluePoint
+      const withinRange =
+        viewerPosition > 0 &&
+        player.position > 0 &&
+        player.position < viewerPosition &&
+        viewerPosition - player.position <= maxUp
+      const accessAllowed =
+        viewerIsAccess &&
+        Boolean(playersData?.accessThreshold) &&
+        player.position >= (playersData?.accessThreshold ?? 0)
+      const rangeAllowed = viewerIsAccess ? accessAllowed : withinRange
+      const targetHasChallenge = Boolean(player.summary)
+      const canChallenge =
+        showChallenge &&
+        clientCanChallenge &&
+        typeAllowed &&
+        !targetBlueBlocked &&
+        rangeAllowed &&
+        !viewerHasChallenge &&
+        !targetHasChallenge &&
+        !player.isSuspended &&
+        !isSelf
+      const showCountdown =
+        !viewerIsSuspended &&
+        showChallenge &&
+        !targetBlueBlocked &&
+        rangeAllowed &&
+        !viewerHasChallenge &&
+        !targetHasChallenge &&
+        !player.isSuspended &&
+        !isSelf
+      const baseRowTone =
+        index % 2 === 0
+          ? "bg-sky-50/80 dark:bg-slate-900/60"
+          : "bg-white dark:bg-slate-800/60"
+      const rowTone = player.isBluePoint
+        ? "bg-sky-100 dark:bg-sky-900/45"
+        : baseRowTone
+      const blueHighlight = player.isBluePoint
+        ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
+        : ""
+
+      return {
+        player,
+        name,
+        positionLabel,
+        statusBadges,
+        canChallenge,
+        showCountdown,
+        showAdminEdit: canManage && !editing,
+        cardClassName: `${rowTone} ${blueHighlight}`,
+      } satisfies ActivePlayerCardView
+    })
+  }, [
+    deferredActivePlayers,
+    canManage,
+    clientCanChallenge,
+    editing,
+    effectivePhase,
+    maxUp,
+    playersData?.accessThreshold,
+    playersData?.viewerId,
+    viewerHasChallenge,
+    viewerIsAccess,
+    viewerIsBlue,
+    viewerIsSuspended,
+    viewerPosition,
+  ])
+
+  const activePlayerCards = useMemo(
+    () =>
+      activePlayerViews.map((row) => (
+        <RankingPlayerCard
+          key={row.player.userId}
+          row={row}
+          editing={editing}
+          isDragging={draggingId === row.player.userId}
+          isActionLoading={actionLoading === row.player.userId}
+          countdownText={row.showCountdown ? countdownText : ""}
+          onChallenge={handleChallenge}
+          onOpenEdit={openEditModal}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        />
+      )),
+    [
+      actionLoading,
+      activePlayerViews,
+      countdownText,
+      draggingId,
+      editing,
+      handleChallenge,
+      handleDragEnd,
+      handleDragOver,
+      handleDragStart,
+      openEditModal,
+    ]
+  )
 
   if (loadingRankings) {
     return (
       <div className="space-y-6">
-        <div className="flex gap-4 overflow-x-auto pb-1">
+        <div
+          className={getCategoryGridClassName(3)}
+        >
           {Array.from({ length: 3 }).map((_, index) => (
             <Card
               key={`ranking-skeleton-${index}`}
-              className="w-[320px] shrink-0 shadow-none"
+              className="gap-0 p-0 shadow-none"
             >
-              <CardHeader>
-                <Skeleton className="h-5 w-32" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-3 w-24" />
-              </CardContent>
+              <div className="flex h-full items-center justify-between gap-2 px-3 py-2">
+                <Skeleton className="h-3.5 w-28 sm:w-32" />
+                <Skeleton className="h-4 w-10 rounded-full" />
+              </div>
             </Card>
           ))}
         </div>
@@ -750,40 +1438,8 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
   return (
     <div className="space-y-8">
-      <div className="flex gap-4 overflow-x-auto pb-1">
-        {rankings.map((category) => (
-          <Card
-            key={category.id}
-            className={
-              selectedId === String(category.id)
-                ? "w-[320px] shrink-0 border-primary/40 bg-primary/5 shadow-none"
-                : "w-[320px] shrink-0 shadow-none"
-            }
-            role="button"
-            tabIndex={0}
-            onClick={() => handleSelectRanking(String(category.id))}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                handleSelectRanking(String(category.id))
-              }
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                {category.name}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Users className="size-4" />
-                {category.activePlayers} jogadores ativos
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {category.description || "Categoria em andamento"}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className={categoryGridClassName}>
+        {categoryCards}
       </div>
 
       {loadingPlayers || !playersData ? (
@@ -992,220 +1648,7 @@ export default function RankingList({ isAdmin = false }: RankingListProps) {
 
             <div className="space-y-1.5 sm:space-y-3">
               {activePlayers.length ? (
-                activePlayers.map((player, index) => {
-                    const badgeClassName =
-                      "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
-                    const name = formatName(
-                      player.firstName,
-                      player.lastName,
-                      player.nickname
-                    )
-                    const positionLabel =
-                      player.position > 0 ? `#${player.position}` : "-"
-                    const statusBadges: Array<{
-                      label: string
-                      tone: StatPillTone
-                      className?: string
-                    }> = []
-
-                    if (player.isBluePoint) {
-                      statusBadges.push({
-                        label: "Ponto azul",
-                        tone: "info",
-                        className:
-                          `${badgeClassName} border-sky-400 bg-sky-500/90 text-white shadow-sm dark:border-sky-300 dark:bg-sky-400/90 dark:text-slate-900`,
-                      })
-                    }
-
-                    if (player.isAccessChallenge) {
-                      statusBadges.push({ label: "Acesso", tone: "neutral" })
-                    }
-
-                    if (player.summary) {
-                      if (player.summary.result !== "pending") {
-                        statusBadges.push({
-                          label:
-                            player.summary.result === "win"
-                              ? "Vitoria"
-                              : "Derrota",
-                          tone: resultTone[player.summary.result],
-                          className: badgeClassName,
-                        })
-                      } else if (player.summary.status) {
-                        const labelMap: Record<PlayerSummary["status"], string> = {
-                          scheduled: "Pendente",
-                          accepted: "Aceito",
-                          declined: "Recusado",
-                          completed: "Concluido",
-                          cancelled: "Cancelado",
-                        }
-
-                        statusBadges.push({
-                          label: labelMap[player.summary.status],
-                          tone: statusTone[player.summary.status],
-                          className: badgeClassName,
-                        })
-                      }
-                    }
-
-                    const isSelf = player.userId === playersData.viewerId
-                    const showChallenge = !editing
-                    const isBluePhase = effectivePhase === "blue"
-                    const isOpenPhase = effectivePhase === "open"
-                    const typeAllowed = viewerIsSuspended
-                      ? false
-                      : isBluePhase
-                      ? viewerIsBlue
-                      : isOpenPhase
-                      ? !viewerIsBlue
-                      : true
-                    const targetBlueBlocked =
-                      isBluePhase && viewerIsBlue && player.isBluePoint
-                    const withinRange =
-                      viewerPosition > 0 &&
-                      player.position > 0 &&
-                      player.position < viewerPosition &&
-                      viewerPosition - player.position <= maxUp
-                    const accessAllowed =
-                      viewerIsAccess &&
-                      !!playersData.accessThreshold &&
-                      player.position >= playersData.accessThreshold
-                    const rangeAllowed = viewerIsAccess ? accessAllowed : withinRange
-                    const targetHasChallenge = Boolean(player.summary)
-                    const canChallenge =
-                      showChallenge &&
-                      clientCanChallenge &&
-                      typeAllowed &&
-                      !targetBlueBlocked &&
-                      rangeAllowed &&
-                      !viewerHasChallenge &&
-                      !targetHasChallenge &&
-                      !player.isSuspended &&
-                      !isSelf
-                    const showCountdown =
-                      Boolean(countdownText) &&
-                      !viewerIsSuspended &&
-                      showChallenge &&
-                      !targetBlueBlocked &&
-                      rangeAllowed &&
-                      !viewerHasChallenge &&
-                      !targetHasChallenge &&
-                      !player.isSuspended &&
-                      !isSelf
-                    const isDragging = draggingId === player.userId
-                    const baseRowTone =
-                      index % 2 === 0
-                        ? "bg-sky-50/80 dark:bg-slate-900/60"
-                        : "bg-white dark:bg-slate-800/60"
-                    const rowTone = player.isBluePoint
-                      ? "bg-sky-100 dark:bg-sky-900/45"
-                      : baseRowTone
-                    const blueHighlight = player.isBluePoint
-                      ? "border-sky-400/70 ring-1 ring-sky-300/60 dark:border-sky-400/60"
-                      : ""
-                    const showAdminEdit = canManage && !editing
-
-                    return (
-                      <Card
-                        key={player.userId}
-                        className={`shadow-none ${
-                          editing ? "cursor-grab border-dashed" : ""
-                        } py-2 sm:py-6 ${rowTone} ${blueHighlight} ${
-                          isDragging ? "ring-2 ring-primary/30 opacity-70" : ""
-                        }`}
-                        draggable={editing}
-                        onDragStart={(event) =>
-                          handleDragStart(event, player.userId)
-                        }
-                        onDragOver={(event) => handleDragOver(event, player.userId)}
-                        onDrop={handleDragEnd}
-                        onDragEnd={handleDragEnd}
-                        aria-grabbed={editing && isDragging}
-                      >
-                        <CardContent className="flex items-start justify-between gap-2 px-3 sm:items-center sm:gap-3 sm:px-6">
-                          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-4">
-                            {editing ? (
-                              <div className="flex size-6 items-center justify-center text-muted-foreground sm:size-8">
-                                <GripVertical className="size-3.5 sm:size-5" />
-                              </div>
-                            ) : null}
-                            <UserAvatar
-                              name={name}
-                              src={player.avatarUrl}
-                              size="clamp(26px, 8vw, 36px)"
-                            />
-                            <div className="min-w-0 space-y-1.5">
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm sm:size-9 sm:text-xs">
-                                  {positionLabel}
-                                </div>
-                                <p className="truncate text-[12px] font-semibold text-foreground sm:text-sm sm:whitespace-normal">
-                                  {name}
-                                </p>
-                              </div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {statusBadges.length ? (
-                                  statusBadges.map((status) => (
-                                    <StatPill
-                                      key={`${player.userId}-${status.label}`}
-                                      label={status.label}
-                                      tone={status.tone}
-                                      className={status.className}
-                                    />
-                                  ))
-                                ) : (
-                                  <StatPill
-                                    label="Sem historico"
-                                    tone="neutral"
-                                    className={badgeClassName}
-                                  />
-                                )}
-                              </div>
-                              {showCountdown ? (
-                                <p className="text-[10px] font-semibold text-destructive sm:text-xs">
-                                  {countdownText}
-                                </p>
-                              ) : null}
-                            </div>
-                          </div>
-                          {showChallenge || showAdminEdit ? (
-                            <div className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 sm:w-auto sm:flex-row sm:items-center">
-                              {showChallenge ? (
-                                <Button
-                                  className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
-                                  disabled={
-                                    !canChallenge ||
-                                    actionLoading === player.userId
-                                  }
-                                  onClick={() => handleChallenge(player.userId)}
-                                  aria-label="Desafiar"
-                                >
-                                  <Swords className="size-4 sm:hidden" />
-                                  <span className="hidden sm:inline">
-                                  {actionLoading === player.userId
-                                    ? "Enviando..."
-                                    : "Desafiar"}
-                                  </span>
-                                </Button>
-                              ) : null}
-                              {showAdminEdit ? (
-                                <Button
-                                  className="h-8 w-8 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openEditModal(player)}
-                                  aria-label="Editar"
-                                >
-                                  <Pencil className="size-3.5 sm:size-4" />
-                                  <span className="hidden sm:inline">Editar</span>
-                                </Button>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </CardContent>
-                      </Card>
-                    )
-                })
+                activePlayerCards
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Nenhum jogador ativo encontrado neste ranking.
