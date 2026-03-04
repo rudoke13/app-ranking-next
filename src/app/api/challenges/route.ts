@@ -262,22 +262,50 @@ export async function GET(request: Request) {
       challenged_retired: true,
       challenger_id: true,
       challenged_id: true,
-      rankings: {
-        select: { id: true, name: true, slug: true },
-      },
-      users_challenges_challenger_idTousers: {
-        select: { id: true, first_name: true, last_name: true, nickname: true, avatarUrl: true },
-      },
-      users_challenges_challenged_idTousers: {
-        select: { id: true, first_name: true, last_name: true, nickname: true, avatarUrl: true },
-      },
     },
   })
+
+  const rankingIds = Array.from(new Set(challenges.map((challenge) => challenge.ranking_id)))
+  const userIds = Array.from(
+    new Set(
+      challenges.flatMap((challenge) => [
+        challenge.challenger_id,
+        challenge.challenged_id,
+      ])
+    )
+  )
+
+  const [rankings, users] = await Promise.all([
+    rankingIds.length
+      ? db.rankings.findMany({
+          where: { id: { in: rankingIds } },
+          select: { id: true, name: true, slug: true },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? db.users.findMany({
+          where: { id: { in: userIds } },
+          select: {
+            id: true,
+            first_name: true,
+            last_name: true,
+            nickname: true,
+            avatarUrl: true,
+          },
+        })
+      : Promise.resolve([]),
+  ])
+
+  const rankingById = new Map(rankings.map((ranking) => [ranking.id, ranking]))
+  const userById = new Map(users.map((user) => [user.id, user]))
 
   const viewerId = Number(session.userId)
   const nowMs = Date.now()
   const preparedChallenges: Array<{
     challenge: (typeof challenges)[number]
+    ranking: (typeof rankings)[number]
+    challenger: (typeof users)[number]
+    challenged: (typeof users)[number]
     normalizedStatus: ReturnType<typeof resolveChallengeStatus>
     resolvedWinner: ReturnType<typeof resolveChallengeWinner>
     sortTime: number
@@ -305,8 +333,19 @@ export async function GET(request: Request) {
       continue
     }
 
+    const ranking = rankingById.get(challenge.ranking_id)
+    const challenger = userById.get(challenge.challenger_id)
+    const challenged = userById.get(challenge.challenged_id)
+
+    if (!ranking || !challenger || !challenged) {
+      continue
+    }
+
     preparedChallenges.push({
       challenge,
+      ranking,
+      challenger,
+      challenged,
       normalizedStatus,
       resolvedWinner: resolveChallengeWinner({
         winner: challenge.winner,
@@ -322,14 +361,14 @@ export async function GET(request: Request) {
         0,
       playedAtTime: challenge.played_at?.getTime() ?? 0,
       challengerName: formatName(
-        challenge.users_challenges_challenger_idTousers.first_name,
-        challenge.users_challenges_challenger_idTousers.last_name,
-        challenge.users_challenges_challenger_idTousers.nickname
+        challenger.first_name,
+        challenger.last_name,
+        challenger.nickname
       ),
       challengedName: formatName(
-        challenge.users_challenges_challenged_idTousers.first_name,
-        challenge.users_challenges_challenged_idTousers.last_name,
-        challenge.users_challenges_challenged_idTousers.nickname
+        challenged.first_name,
+        challenged.last_name,
+        challenged.nickname
       ),
     })
   }
@@ -365,8 +404,14 @@ export async function GET(request: Request) {
 
   const data = sorted.map((entry) => {
     const challenge = entry.challenge
-    const challenger = challenge.users_challenges_challenger_idTousers
-    const challenged = challenge.users_challenges_challenged_idTousers
+    const { ranking, challenger, challenged } = entry
+    const scheduledFor =
+      challenge.scheduled_for ?? challenge.played_at ?? challenge.created_at
+
+    if (!scheduledFor) {
+      return null
+    }
+
     const isChallenger = viewerId === challenge.challenger_id
     const isChallenged = viewerId === challenge.challenged_id
     const createdAt = challenge.created_at?.getTime() ?? 0
@@ -392,11 +437,11 @@ export async function GET(request: Request) {
       status: entry.normalizedStatus,
       winner: entry.resolvedWinner,
       ranking: {
-        id: challenge.rankings.id,
-        name: challenge.rankings.name,
-        slug: challenge.rankings.slug,
+        id: ranking.id,
+        name: ranking.name,
+        slug: ranking.slug,
       },
-      scheduledFor: challenge.scheduled_for.toISOString(),
+      scheduledFor: scheduledFor.toISOString(),
       playedAt: challenge.played_at?.toISOString() ?? null,
       challengerGames: challenge.challenger_games ?? null,
       challengedGames: challenge.challenged_games ?? null,
@@ -421,7 +466,7 @@ export async function GET(request: Request) {
       canCancel,
       canResult,
     }
-  })
+  }).filter((item): item is NonNullable<typeof item> => Boolean(item))
 
   const responseBody: ChallengesResponsePayload = {
     ok: true,
