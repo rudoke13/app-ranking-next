@@ -30,7 +30,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
       ]
     : [
         {
-          src: "/favicon.ico",
+          src: "/default-favicon.ico",
           sizes: "32x32",
           type: "image/x-icon",
         },

@@ -7,9 +7,10 @@ import { getAppBranding } from "@/lib/branding"
 export async function generateMetadata(): Promise<Metadata> {
   const branding = await getAppBranding()
   const appName = branding.appName
-  const iconUrl = branding.faviconUrl ? "/favicon" : "/favicon.ico"
+  const iconUrl = branding.faviconUrl ?? branding.logoUrl ? "/favicon" : "/default-favicon.ico"
   const icons = {
     icon: [{ url: iconUrl }],
+    shortcut: [{ url: iconUrl }],
     apple: [{ url: iconUrl }],
   }
 
@@ -52,8 +53,6 @@ export default function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: themeScript }}
         />
-        <link rel="icon" href="/favicon" />
-        <link rel="apple-touch-icon" href="/favicon" />
       </head>
       <body
         suppressHydrationWarning

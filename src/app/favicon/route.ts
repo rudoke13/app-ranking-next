@@ -33,5 +33,5 @@ export async function GET(request: Request) {
     } catch {}
   }
 
-  return NextResponse.redirect(new URL("/favicon.ico", request.url))
+  return NextResponse.redirect(new URL("/default-favicon.ico", request.url))
 }
