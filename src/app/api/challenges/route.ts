@@ -13,6 +13,9 @@ import { shiftMonthValue } from "@/lib/date"
 import { hasAdminAccess } from "@/lib/domain/permissions"
 import { normalizeAppDateTimeInput, parseAppDateTime } from "@/lib/timezone"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 const createSchema = z.object({
   ranking_id: z.number().int().positive(),
   challenged_id: z.number().int().positive(),

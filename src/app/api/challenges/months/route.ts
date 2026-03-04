@@ -3,6 +3,9 @@ import { NextResponse } from "next/server"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Sao_Paulo"
 let appMonthFormatter: Intl.DateTimeFormat | null = null
 try {
