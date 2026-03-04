@@ -1,22 +1,14 @@
-import SectionTitle from "@/components/app/SectionTitle"
 import RankingList from "@/components/ranking/RankingList"
-import { getSessionFromCookies } from "@/lib/auth/session"
-import { hasStaffAccess } from "@/lib/domain/permissions"
+import SectionTitle from "@/components/app/SectionTitle"
 
-export const dynamic = "force-dynamic"
-export const fetchCache = "force-no-store"
-
-export default async function RankingPage() {
-  const session = await getSessionFromCookies()
-  const isAdmin = hasStaffAccess(session)
-
+export default function RankingPage() {
   return (
     <div className="space-y-8">
       <SectionTitle
         title="Ranking"
         subtitle="Categorias ativas e situacao dos jogadores"
       />
-      <RankingList isAdmin={isAdmin} />
+      <RankingList />
     </div>
   )
 }

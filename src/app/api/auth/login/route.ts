@@ -45,6 +45,7 @@ export async function POST(request: Request) {
       nickname: true,
       first_name: true,
       last_name: true,
+      avatarUrl: true,
     },
   })
   const findUserMs = performance.now() - findUserStartedAt
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
     email: user.email,
     role,
     sessionToken,
+    avatarUrl: user.avatarUrl ?? null,
   }
 
   const token = await signSession(session)

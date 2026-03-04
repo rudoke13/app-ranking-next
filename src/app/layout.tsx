@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import Script from "next/script"
 import "./globals.css"
 
@@ -17,9 +17,12 @@ export async function generateMetadata(): Promise<Metadata> {
     title: appName,
     description: "Plataforma de ranking e desafios do Tenis TCC.",
     manifest: "/manifest.webmanifest",
-    themeColor: "#0b1218",
     icons,
   }
+}
+
+export const viewport: Viewport = {
+  themeColor: "#0b1218",
 }
 
 export default function RootLayout({

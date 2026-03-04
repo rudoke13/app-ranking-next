@@ -12,21 +12,38 @@ type SessionTokenCacheEntry = {
 
 type SessionCacheGlobal = typeof globalThis & {
   __sessionTokenCache?: Map<number, SessionTokenCacheEntry>
+  __sessionTokenInFlight?: Map<number, Promise<string | null>>
 }
 
 const sessionCacheGlobal = globalThis as SessionCacheGlobal
 const sessionTokenCache =
   sessionCacheGlobal.__sessionTokenCache ??
   new Map<number, SessionTokenCacheEntry>()
+const sessionTokenInFlight =
+  sessionCacheGlobal.__sessionTokenInFlight ??
+  new Map<number, Promise<string | null>>()
 
 if (!sessionCacheGlobal.__sessionTokenCache) {
   sessionCacheGlobal.__sessionTokenCache = sessionTokenCache
 }
 
+if (!sessionCacheGlobal.__sessionTokenInFlight) {
+  sessionCacheGlobal.__sessionTokenInFlight = sessionTokenInFlight
+}
+
 const SESSION_TOKEN_CACHE_TTL_MS = Math.max(
   0,
-  Number(process.env.SESSION_TOKEN_CACHE_TTL_MS ?? "5000") || 0
+  Number(process.env.SESSION_TOKEN_CACHE_TTL_MS ?? "300000") || 0
 )
+const MAX_SESSION_TOKEN_CACHE_ENTRIES = 500
+
+const pruneSessionTokenCache = () => {
+  while (sessionTokenCache.size > MAX_SESSION_TOKEN_CACHE_ENTRIES) {
+    const oldestKey = sessionTokenCache.keys().next().value
+    if (oldestKey === undefined) break
+    sessionTokenCache.delete(oldestKey)
+  }
+}
 
 const getCachedToken = (userId: number) => {
   if (SESSION_TOKEN_CACHE_TTL_MS <= 0) return null
@@ -45,6 +62,29 @@ const setCachedToken = (userId: number, sessionToken: string) => {
     sessionToken,
     expiresAt: Date.now() + SESSION_TOKEN_CACHE_TTL_MS,
   })
+  pruneSessionTokenCache()
+}
+
+const readSessionTokenFromDb = async (userId: number) => {
+  const pending = sessionTokenInFlight.get(userId)
+  if (pending) {
+    return pending
+  }
+
+  const fetchPromise = db.users
+    .findUnique({
+      where: { id: userId },
+      select: { sessionToken: true },
+    })
+    .then((user) => user?.sessionToken ?? null)
+    .finally(() => {
+      if (sessionTokenInFlight.get(userId) === fetchPromise) {
+        sessionTokenInFlight.delete(userId)
+      }
+    })
+
+  sessionTokenInFlight.set(userId, fetchPromise)
+  return fetchPromise
 }
 
 export function primeSessionTokenCache(userId: number, sessionToken: string) {
@@ -78,20 +118,21 @@ export async function getSessionFromCookies() {
   const expectedSessionToken = session.sessionToken
   const cachedToken = getCachedToken(userId)
   if (cachedToken) {
-    return cachedToken === expectedSessionToken ? session : null
+    if (cachedToken === expectedSessionToken) {
+      return session
+    }
+    // Cache pode ficar stale entre instancias/deploys; valida no banco antes de negar.
+    clearSessionTokenCache(userId)
   }
 
-  const user = await db.users.findUnique({
-    where: { id: userId },
-    select: { sessionToken: true },
-  })
+  const dbSessionToken = await readSessionTokenFromDb(userId)
 
-  if (!user?.sessionToken || user.sessionToken !== expectedSessionToken) {
+  if (!dbSessionToken || dbSessionToken !== expectedSessionToken) {
     clearSessionTokenCache(userId)
     return null
   }
 
-  setCachedToken(userId, user.sessionToken)
+  setCachedToken(userId, dbSessionToken)
   return session
 }
 

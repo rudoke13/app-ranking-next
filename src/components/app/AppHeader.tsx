@@ -40,12 +40,15 @@ export default function AppHeader({
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link
           href="/dashboard"
+          prefetch
           className="flex items-center gap-3 text-base font-semibold tracking-tight text-primary sm:text-lg"
         >
           <UserAvatar
             name={appName}
             src={logoUrl}
             size="clamp(40px, 5vw, 48px)"
+            sizes="48px"
+            priority
             fallbackLabel={logoLabel}
             className="text-sm sm:text-base"
           />

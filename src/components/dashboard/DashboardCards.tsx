@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import Link from "next/link"
 import {
   CalendarDays,
@@ -26,6 +33,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
+import { prefetchApiGet } from "@/lib/http-prefetch"
 import {
   formatDateTimeInAppTz,
   formatMonthYearInAppTz,
@@ -74,6 +82,7 @@ const monthKeyFromValue = (value: string | null) => {
 
 type DashboardData = {
   viewerId: number
+  isAdmin: boolean
   defaultRanking: {
     id: number
     name: string
@@ -141,6 +150,27 @@ type DashboardData = {
   }[]
 }
 
+const EMPTY_LICENSE_PLAYERS: DashboardData["licensePlayers"] = []
+const EMPTY_INACTIVE_PLAYERS: DashboardData["inactivePlayers"] = []
+const EMPTY_RECEIVED_CHALLENGES: DashboardData["received"] = []
+const EMPTY_MY_CHALLENGES: DashboardData["myChallenges"] = []
+const EMPTY_RECENT_RESULTS: DashboardData["recentResults"] = []
+
+const DASHBOARD_CACHE_TTL_MS = 30_000
+
+type DashboardCacheEntry = {
+  data: DashboardData
+  cachedAt: number
+}
+
+type DashboardFetchResult = {
+  data: DashboardData | null
+  error: string | null
+}
+
+let dashboardCache: DashboardCacheEntry | null = null
+let dashboardInFlight: Promise<DashboardFetchResult> | null = null
+
 const formatDate = (value: string | null) => {
   return formatDateTimeInAppTz(value, { second: "2-digit" })
 }
@@ -155,13 +185,10 @@ const formatScore = (score: DashboardData["recentResults"][number]["score"]) => 
   return base
 }
 
-export type DashboardCardsProps = {
-  isAdmin?: boolean
-}
-
-export default function DashboardCards({ isAdmin = false }: DashboardCardsProps) {
+export default function DashboardCards() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resultOpenId, setResultOpenId] = useState<number | null>(null)
   const [resultType, setResultType] = useState("score")
@@ -172,24 +199,145 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
   const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
   const [resultError, setResultError] = useState<string | null>(null)
   const [resultLoading, setResultLoading] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const deferredLicensePlayers = useDeferredValue(
+    data?.licensePlayers ?? EMPTY_LICENSE_PLAYERS
+  )
+  const deferredInactivePlayers = useDeferredValue(
+    data?.inactivePlayers ?? EMPTY_INACTIVE_PLAYERS
+  )
+  const deferredReceivedChallenges = useDeferredValue(
+    data?.received ?? EMPTY_RECEIVED_CHALLENGES
+  )
+  const deferredMyChallenges = useDeferredValue(
+    data?.myChallenges ?? EMPTY_MY_CHALLENGES
+  )
+  const deferredRecentResults = useDeferredValue(
+    data?.recentResults ?? EMPTY_RECENT_RESULTS
+  )
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true)
-    const response = await apiGet<DashboardData>("/api/dashboard")
+  const loadDashboard = useCallback(
+    async (options?: { preserveUi?: boolean; fresh?: boolean }) => {
+      const preserveUi = options?.preserveUi ?? false
+      const fresh = options?.fresh ?? false
+      const finish = () => {
+        if (!mountedRef.current) return
+        if (preserveUi) {
+          setRefreshing(false)
+        } else {
+          setLoading(false)
+        }
+      }
 
-    if (!response.ok) {
-      setError(response.message)
-      setLoading(false)
-      return
-    }
+      if (preserveUi) {
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
 
-    setData(response.data)
-    setLoading(false)
-  }, [])
+      const now = Date.now()
+      if (
+        !fresh &&
+        dashboardCache &&
+        now - dashboardCache.cachedAt <= DASHBOARD_CACHE_TTL_MS
+      ) {
+        if (mountedRef.current) {
+          setError(null)
+          setData(dashboardCache.data)
+        }
+        finish()
+        return
+      }
+
+      const pending =
+        !fresh && dashboardInFlight
+          ? dashboardInFlight
+          : apiGet<DashboardData>("/api/dashboard", {
+              cacheTtlMs: DASHBOARD_CACHE_TTL_MS,
+              fresh,
+            }).then((response): DashboardFetchResult =>
+              response.ok
+                ? { data: response.data, error: null }
+                : { data: null, error: response.message }
+            )
+
+      if (!fresh && !dashboardInFlight) {
+        dashboardInFlight = pending
+      }
+
+      const result = await pending
+      if (!fresh && dashboardInFlight === pending) {
+        dashboardInFlight = null
+      }
+
+      if (!mountedRef.current) return
+
+      if (!result.data) {
+        setError(result.error ?? "Erro ao carregar dados.")
+        finish()
+        return
+      }
+
+      dashboardCache = {
+        data: result.data,
+        cachedAt: Date.now(),
+      }
+      setError(null)
+      setData(result.data)
+      finish()
+    },
+    []
+  )
 
   useEffect(() => {
-    loadDashboard()
+    mountedRef.current = true
+    void loadDashboard()
+    return () => {
+      mountedRef.current = false
+    }
   }, [loadDashboard])
+
+  const monthLabel = useMemo(
+    () =>
+      data?.round
+        ? formatMonthYearInAppTz(data.round.referenceMonth, "Rodada")
+        : "Rodada",
+    [data]
+  )
+  const currentRoundKey = useMemo(
+    () => (data?.round ? monthKeyFromValue(data.round.referenceMonth) : null),
+    [data]
+  )
+  const welcomeMessage = useMemo(() => {
+    const pendingCount = data?.stats.myPendingCount ?? 0
+    return pendingCount > 0
+      ? `Voce tem ${pendingCount} desafios pendentes nesta rodada.`
+      : "Sem desafios pendentes nesta rodada."
+  }, [data?.stats.myPendingCount])
+  const receivedChallenges = useMemo(() => {
+    return deferredReceivedChallenges.map((challenge) => ({
+      ...challenge,
+      scheduledLabel: formatDate(challenge.scheduledFor),
+    }))
+  }, [deferredReceivedChallenges])
+  const recentResults = useMemo(() => {
+    return deferredRecentResults.map((result) => ({
+      ...result,
+      scoreLabel: formatScore(result.score),
+      playedLabel: formatDate(result.playedAt),
+    }))
+  }, [deferredRecentResults])
+
+  useEffect(() => {
+    if (!data) return
+    prefetchApiGet("/api/rankings", { minIntervalMs: 25_000 })
+    prefetchApiGet("/api/challenges/months", { minIntervalMs: 25_000 })
+    if (currentRoundKey) {
+      prefetchApiGet(`/api/challenges?month=${currentRoundKey}&sort=recent`, {
+        minIntervalMs: 25_000,
+      })
+    }
+  }, [currentRoundKey, data])
 
   if (loading) {
     return (
@@ -209,14 +357,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
       />
     )
   }
-
-  const monthLabel = data.round
-    ? formatMonthYearInAppTz(data.round.referenceMonth, "Rodada")
-    : "Rodada"
-
-  const currentRoundKey = data.round
-    ? monthKeyFromValue(data.round.referenceMonth)
-    : null
+  const isAdmin = data.isAdmin
 
   const openResultFor = (challenge: DashboardData["myChallenges"][number]) => {
     setResultOpenId(challenge.id)
@@ -249,7 +390,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
 
     setResultLoading(null)
     setResultOpenId(null)
-    loadDashboard()
+    loadDashboard({ preserveUi: true, fresh: true })
   }
 
   const handleSaveResult = async (challengeId: number) => {
@@ -327,7 +468,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
 
       setResultLoading(null)
       setResultOpenId(null)
-      loadDashboard()
+      loadDashboard({ preserveUi: true, fresh: true })
       return
     }
 
@@ -363,7 +504,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
 
     setResultLoading(null)
     setResultOpenId(null)
-    loadDashboard()
+    loadDashboard({ preserveUi: true, fresh: true })
   }
 
   return (
@@ -385,6 +526,9 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
           ) : undefined
         }
       />
+      {refreshing ? (
+        <p className="text-xs text-muted-foreground">Atualizando dados...</p>
+      ) : null}
 
       <Card className="border-primary/20 bg-primary/10">
         <CardContent className="flex flex-col gap-2">
@@ -393,9 +537,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
             <span className="text-sm font-semibold">Bem-vindo de volta!</span>
           </div>
           <p className="text-sm text-muted-foreground">
-            {data.stats.myPendingCount > 0
-              ? `Voce tem ${data.stats.myPendingCount} desafios pendentes nesta rodada.`
-              : "Sem desafios pendentes nesta rodada."}
+            {welcomeMessage}
           </p>
         </CardContent>
       </Card>
@@ -457,11 +599,11 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
       />
       <Card>
         <CardContent className="space-y-3">
-          {data.licensePlayers.length ? (
-            data.licensePlayers.map((player) => (
+          {deferredLicensePlayers.length ? (
+            deferredLicensePlayers.map((player) => (
               <div
                 key={player.id}
-                className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between [content-visibility:auto] [contain-intrinsic-size:72px]"
               >
                 <div className="flex items-center gap-3">
                   <UserAvatar name={player.name} src={player.avatarUrl} size={36} />
@@ -491,11 +633,11 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
           />
           <Card>
             <CardContent className="space-y-3">
-              {data.inactivePlayers.length ? (
-                data.inactivePlayers.map((player) => (
+              {deferredInactivePlayers.length ? (
+                deferredInactivePlayers.map((player) => (
                   <div
                     key={player.id}
-                    className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between [content-visibility:auto] [contain-intrinsic-size:72px]"
                   >
                     <div className="flex items-center gap-3">
                       <UserAvatar
@@ -529,11 +671,11 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
         title="Historico de desafios recebidos"
         subtitle="Ultimos convites recebidos"
       />
-      {data.received.length ? (
+      {receivedChallenges.length ? (
         <div className="grid gap-4 md:grid-cols-3">
-          {data.received.map((challenge) => (
+          {receivedChallenges.map((challenge) => (
             <Card key={challenge.id} className="shadow-none">
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-3 [content-visibility:auto] [contain-intrinsic-size:108px]">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-foreground">
                     {challenge.opponent}
@@ -545,7 +687,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <CalendarDays className="size-3" />
-                  {formatDate(challenge.scheduledFor)}
+                  {challenge.scheduledLabel}
                 </div>
               </CardContent>
             </Card>
@@ -562,9 +704,9 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
         title="Meus desafios"
         subtitle="Atualize os resultados das partidas"
       />
-      {data.myChallenges.length ? (
+      {deferredMyChallenges.length ? (
         <div className="space-y-3">
-          {data.myChallenges.map((challenge) => {
+          {deferredMyChallenges.map((challenge) => {
             const opponent = challenge.isChallenger
               ? challenge.challenged
               : challenge.challenger
@@ -578,7 +720,7 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
 
             return (
               <Card key={challenge.id} className="shadow-none">
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-4 [content-visibility:auto] [contain-intrinsic-size:136px]">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3">
                       <UserAvatar
@@ -770,11 +912,11 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
         title="Resultados recentes"
         subtitle="Suas ultimas partidas confirmadas"
       />
-      {data.recentResults.length ? (
+      {recentResults.length ? (
         <div className="grid gap-4 md:grid-cols-3">
-          {data.recentResults.map((result) => (
+          {recentResults.map((result) => (
             <Card key={result.id} className="shadow-none">
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-3 [content-visibility:auto] [contain-intrinsic-size:108px]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                     <Trophy className="size-4 text-primary" />
@@ -792,10 +934,10 @@ export default function DashboardCards({ isAdmin = false }: DashboardCardsProps)
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{formatScore(result.score)}</span>
+                  <span>{result.scoreLabel}</span>
                   <div className="flex items-center gap-1">
                     <CircleCheck className="size-3 text-success" />
-                    {formatDate(result.playedAt)}
+                    {result.playedLabel}
                   </div>
                 </div>
               </CardContent>

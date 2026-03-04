@@ -6,6 +6,7 @@ export type SessionPayload = {
   email: string
   role: Role
   sessionToken: string
+  avatarUrl?: string | null
 }
 
 export const SESSION_COOKIE_NAME = "tcc_session"

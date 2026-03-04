@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useState } from "react"
 import { CalendarDays, Flag, Swords } from "lucide-react"
 
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
@@ -38,6 +38,14 @@ const statusTone = {
 
 type ChallengeStatus = keyof typeof statusLabel
 
+const getCancelTickMs = (remainingMs: number) => {
+  if (remainingMs > 6 * 60 * 60 * 1000) return 60_000
+  if (remainingMs > 60 * 60 * 1000) return 30_000
+  if (remainingMs > 10 * 60 * 1000) return 5_000
+  if (remainingMs > 60 * 1000) return 1_000
+  return 500
+}
+
 export type ChallengeItem = {
   id: number
   status: ChallengeStatus
@@ -57,8 +65,6 @@ export type ChallengeItem = {
   challenged: { id: number; name: string; avatarUrl: string | null }
   cancelWindowOpen: boolean
   cancelWindowClosesAt?: string | null
-  canAccept: boolean
-  canDecline: boolean
   canCancel: boolean
   canResult: boolean
 }
@@ -70,7 +76,7 @@ export type ChallengeCardProps = {
   className?: string
 }
 
-export default function ChallengeCard({
+function ChallengeCardComponent({
   challenge,
   isAdmin = false,
   onActionComplete,
@@ -92,7 +98,8 @@ export default function ChallengeCard({
   const [resultChallengedGames, setResultChallengedGames] = useState("")
   const [resultChallengerTiebreak, setResultChallengerTiebreak] = useState("")
   const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
-  const [now, setNow] = useState(() => Date.now())
+  const [internalNow, setInternalNow] = useState(() => Date.now())
+  const now = internalNow
 
   const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor, {
     second: "2-digit",
@@ -107,14 +114,32 @@ export default function ChallengeCard({
   }, [challenge.cancelWindowClosesAt])
 
   useEffect(() => {
+    if (isAdmin) return
     if (!cancelDeadline) return
-    if (Date.now() >= cancelDeadline) {
-      setNow(Date.now())
-      return
+    let cancelled = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleTick = () => {
+      const nowValue = Date.now()
+      setInternalNow(nowValue)
+
+      const remainingMs = cancelDeadline - nowValue
+      if (remainingMs <= 0) return
+
+      timeout = setTimeout(() => {
+        if (!cancelled) {
+          scheduleTick()
+        }
+      }, getCancelTickMs(remainingMs))
     }
-    const interval = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(interval)
-  }, [cancelDeadline])
+
+    scheduleTick()
+
+    return () => {
+      cancelled = true
+      if (timeout) clearTimeout(timeout)
+    }
+  }, [cancelDeadline, isAdmin])
 
   const cancelWindowOpen =
     cancelDeadline !== null ? now < cancelDeadline : challenge.cancelWindowOpen ?? false
@@ -499,7 +524,12 @@ export default function ChallengeCard({
   }
 
   return (
-    <Card className={cn("shadow-none", className)}>
+    <Card
+      className={cn(
+        "shadow-none [content-visibility:auto] [contain-intrinsic-size:220px]",
+        className
+      )}
+    >
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -875,3 +905,16 @@ export default function ChallengeCard({
     </Card>
   )
 }
+
+const challengeCardPropsAreEqual = (
+  prev: Readonly<ChallengeCardProps>,
+  next: Readonly<ChallengeCardProps>
+) =>
+  prev.challenge === next.challenge &&
+  prev.isAdmin === next.isAdmin &&
+  prev.onActionComplete === next.onActionComplete &&
+  prev.className === next.className
+
+const ChallengeCard = memo(ChallengeCardComponent, challengeCardPropsAreEqual)
+
+export default ChallengeCard

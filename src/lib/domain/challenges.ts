@@ -32,23 +32,105 @@ export type ChallengeWindowState = {
   roundEnd: Date | null
 }
 
+type OpenRoundRecord = {
+  reference_month: Date
+  round_opens_at: Date | null
+  matches_deadline: Date | null
+  blue_point_opens_at: Date | null
+  blue_point_closes_at: Date | null
+  open_challenges_at: Date | null
+  open_challenges_end_at: Date | null
+}
+
+type ResolveChallengeWindowOptions = {
+  openRankingRound?: OpenRoundRecord | null
+  openGlobalRound?: OpenRoundRecord | null
+}
+
+type ChallengeRoundCacheEntry = {
+  cachedAt: number
+  openRankingRound: OpenRoundRecord | null
+  openGlobalRound: OpenRoundRecord | null
+}
+
+const CHALLENGE_WINDOW_ROUNDS_CACHE_TTL_MS = 5_000
+const challengeRoundCache = new Map<number, ChallengeRoundCacheEntry>()
+
+const readCachedRounds = (rankingId: number) => {
+  const cached = challengeRoundCache.get(rankingId)
+  if (!cached) return null
+  if (Date.now() - cached.cachedAt > CHALLENGE_WINDOW_ROUNDS_CACHE_TTL_MS) {
+    challengeRoundCache.delete(rankingId)
+    return null
+  }
+  return cached
+}
+
+const hasProvidedRounds = (options?: ResolveChallengeWindowOptions) =>
+  Boolean(options && ("openRankingRound" in options || "openGlobalRound" in options))
+
 export async function resolveChallengeWindows(
   rankingId: number,
-  moment: Date
+  moment: Date,
+  options?: ResolveChallengeWindowOptions
 ): Promise<ChallengeWindow> {
   const fallbackMonthStart = monthStartFrom(moment)
-  const openRounds = await db.rounds.findMany({
-    where: {
-      status: "open",
-      OR: [{ ranking_id: rankingId }, { ranking_id: null }],
-    },
-    orderBy: [{ reference_month: "desc" }, { id: "desc" }],
-  })
+  let openRankingRound: OpenRoundRecord | null = null
+  let openGlobalRound: OpenRoundRecord | null = null
 
-  const round =
-    openRounds.find((item) => item.ranking_id === rankingId) ??
-    openRounds.find((item) => item.ranking_id === null) ??
-    null
+  if (hasProvidedRounds(options)) {
+    openRankingRound = options?.openRankingRound ?? null
+    openGlobalRound = options?.openGlobalRound ?? null
+  } else {
+    const cached = readCachedRounds(rankingId)
+    if (cached) {
+      openRankingRound = cached.openRankingRound
+      openGlobalRound = cached.openGlobalRound
+    } else {
+      ;[openRankingRound, openGlobalRound] = await Promise.all([
+        db.rounds.findFirst({
+          where: {
+            status: "open",
+            ranking_id: rankingId,
+          },
+          select: {
+            reference_month: true,
+            round_opens_at: true,
+            matches_deadline: true,
+            blue_point_opens_at: true,
+            blue_point_closes_at: true,
+            open_challenges_at: true,
+            open_challenges_end_at: true,
+          },
+          orderBy: [{ reference_month: "desc" }, { id: "desc" }],
+        }),
+        db.rounds.findFirst({
+          where: {
+            status: "open",
+            ranking_id: null,
+          },
+          select: {
+            reference_month: true,
+            round_opens_at: true,
+            matches_deadline: true,
+            blue_point_opens_at: true,
+            blue_point_closes_at: true,
+            open_challenges_at: true,
+            open_challenges_end_at: true,
+          },
+          orderBy: [{ reference_month: "desc" }, { id: "desc" }],
+        }),
+      ])
+
+      challengeRoundCache.set(rankingId, {
+        cachedAt: Date.now(),
+        openRankingRound,
+        openGlobalRound,
+      })
+    }
+  }
+
+  const round = openRankingRound ?? openGlobalRound ?? null
 
   if (round && round.blue_point_opens_at && round.open_challenges_at) {
     const roundStart = round.round_opens_at ?? new Date(fallbackMonthStart)

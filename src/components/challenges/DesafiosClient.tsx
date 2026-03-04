@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { CircleX, Clock, Filter, Swords, Trophy } from "lucide-react"
 
 import ChallengeCard, {
@@ -21,6 +28,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPost } from "@/lib/http"
+import { prefetchApiGet } from "@/lib/http-prefetch"
 import { resolveChallengeWinner } from "@/lib/challenges/result"
 import {
   formatMonthYearInAppTz,
@@ -34,8 +42,9 @@ type RankingItem = {
   slug: string
 }
 
-export type DesafiosClientProps = {
-  isAdmin?: boolean
+type ChallengesResponse = {
+  items: ChallengeItem[]
+  isAdmin: boolean
 }
 
 const monthValue = (date: Date) => {
@@ -55,6 +64,11 @@ const monthDateFromValue = (value: string) => {
   }
   return new Date(year, month - 1, 1)
 }
+
+const mapMonthsToOptions = (values: string[]) =>
+  values
+    .map((value) => ({ value, label: monthLabel(monthDateFromValue(value)) }))
+    .sort((a, b) => b.value.localeCompare(a.value))
 
 const formatName = (
   first?: string | null,
@@ -105,9 +119,70 @@ type MonthOption = {
   label: string
 }
 
-export default function DesafiosClient({
-  isAdmin = false,
-}: DesafiosClientProps) {
+const DESAFIOS_CACHE_TTL_MS = 30_000
+const MAX_CHALLENGES_CACHE_ENTRIES = 120
+const MAX_RANKING_PLAYERS_CACHE_ENTRIES = 80
+
+type CacheEntry<T> = {
+  data: T
+  cachedAt: number
+}
+
+let rankingsCache: CacheEntry<RankingItem[]> | null = null
+let monthsCache: CacheEntry<{ months: string[]; currentMonth?: string }> | null = null
+const challengesCache = new Map<string, CacheEntry<ChallengesResponse>>()
+const rankingPlayersCache = new Map<string, CacheEntry<RankingPlayersResponse>>()
+let rankingsInFlight: Promise<RankingItem[] | null> | null = null
+let monthsInFlight: Promise<{ months: string[]; currentMonth?: string } | null> | null = null
+const challengesInFlight = new Map<string, Promise<ChallengesResponse | null>>()
+const rankingPlayersInFlight = new Map<
+  string,
+  Promise<RankingPlayersResponse | null>
+>()
+
+const nowMs = () => Date.now()
+
+const isFresh = (cachedAt: number) => nowMs() - cachedAt <= DESAFIOS_CACHE_TTL_MS
+
+const pruneMapCache = <T,>(
+  map: Map<string, CacheEntry<T>>,
+  maxEntries: number
+) => {
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value
+    if (oldestKey === undefined) break
+    map.delete(oldestKey)
+  }
+}
+
+const writeChallengesCache = (key: string, data: ChallengesResponse) => {
+  challengesCache.set(key, {
+    data,
+    cachedAt: nowMs(),
+  })
+  pruneMapCache(challengesCache, MAX_CHALLENGES_CACHE_ENTRIES)
+}
+
+const writeRankingPlayersCache = (
+  key: string,
+  data: RankingPlayersResponse
+) => {
+  rankingPlayersCache.set(key, {
+    data,
+    cachedAt: nowMs(),
+  })
+  pruneMapCache(rankingPlayersCache, MAX_RANKING_PLAYERS_CACHE_ENTRIES)
+}
+
+const clearChallengesCaches = () => {
+  challengesCache.clear()
+  monthsCache = null
+  monthsInFlight = null
+  challengesInFlight.clear()
+}
+
+export default function DesafiosClient() {
+  const [isAdmin, setIsAdmin] = useState(false)
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [rankingFilter, setRankingFilter] = useState("all")
   const [monthFilter, setMonthFilter] = useState(monthValue(nowInAppTimeZone()))
@@ -115,6 +190,7 @@ export default function DesafiosClient({
   const [sortFilter, setSortFilter] = useState("recent")
   const [challenges, setChallenges] = useState<ChallengeItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [createRankingId, setCreateRankingId] = useState("")
@@ -135,6 +211,14 @@ export default function DesafiosClient({
   const [createPlayersLoading, setCreatePlayersLoading] = useState(false)
   const [monthOptions, setMonthOptions] = useState<MonthOption[]>([])
   const initializedRef = useRef(false)
+  const challengesRef = useRef<ChallengeItem[]>([])
+  const deferredChallenges = useDeferredValue(challenges)
+  const filtersRef = useRef({
+    rankingFilter: "all",
+    monthFilter: monthValue(nowInAppTimeZone()),
+    statusFilter: "all",
+    sortFilter: "recent",
+  })
 
   const fallbackMonths = useMemo(() => {
     const list: MonthOption[] = []
@@ -149,6 +233,28 @@ export default function DesafiosClient({
   }, [])
 
   const months = monthOptions.length ? monthOptions : fallbackMonths
+  const rankingSelectOptions = useMemo(
+    () =>
+      rankings.map((ranking) => ({
+        value: String(ranking.id),
+        label: ranking.name,
+      })),
+    [rankings]
+  )
+  const createPlayerSelectOptions = useMemo(
+    () =>
+      createPlayers.map((player) => ({
+        value: String(player.userId),
+        label: `${formatName(
+          player.firstName,
+          player.lastName,
+          player.nickname
+        )} (${player.position || "-"})${
+          player.isSuspended ? " - Licenca" : ""
+        }`,
+      })),
+    [createPlayers]
+  )
 
   const challengeMetrics = useMemo(() => {
     let games = 0
@@ -156,7 +262,7 @@ export default function DesafiosClient({
     let losses = 0
     let pending = 0
 
-    challenges.forEach((challenge) => {
+    deferredChallenges.forEach((challenge) => {
       if (challenge.status === "scheduled" || challenge.status === "accepted") {
         pending += 1
       }
@@ -179,29 +285,115 @@ export default function DesafiosClient({
     })
 
     return { games, wins, losses, pending }
+  }, [deferredChallenges])
+
+  useEffect(() => {
+    filtersRef.current = {
+      rankingFilter,
+      monthFilter,
+      statusFilter,
+      sortFilter,
+    }
+  }, [rankingFilter, monthFilter, statusFilter, sortFilter])
+
+  useEffect(() => {
+    challengesRef.current = challenges
   }, [challenges])
 
   const loadRankings = useCallback(async () => {
-    const response = await apiGet<RankingItem[]>("/api/rankings")
-    if (response.ok) {
-      setRankings(response.data)
+    if (rankingsCache && isFresh(rankingsCache.cachedAt)) {
+      setRankings(rankingsCache.data)
+      return
+    }
+
+    if (rankingsInFlight) {
+      const inflightData = await rankingsInFlight
+      if (inflightData) {
+        setRankings(inflightData)
+      }
+      return
+    }
+
+    const pending = apiGet<RankingItem[]>("/api/rankings")
+      .then((response) => (response.ok ? response.data : null))
+      .finally(() => {
+        if (rankingsInFlight === pending) {
+          rankingsInFlight = null
+        }
+      })
+
+    rankingsInFlight = pending
+    const data = await pending
+    if (data) {
+      rankingsCache = {
+        data,
+        cachedAt: nowMs(),
+      }
+      setRankings(data)
     }
   }, [])
 
   const loadMonths = useCallback(async () => {
-    const response = await apiGet<{ months: string[]; currentMonth?: string }>(
+    if (monthsCache && isFresh(monthsCache.cachedAt)) {
+      const current =
+        monthsCache.data.currentMonth ?? monthValue(nowInAppTimeZone())
+      const list = mapMonthsToOptions(monthsCache.data.months)
+
+      const defaultMonth = list.some((item) => item.value === current)
+        ? current
+        : list[0]?.value
+
+      setMonthOptions(list)
+      if (defaultMonth) {
+        setMonthFilter(defaultMonth)
+        return defaultMonth
+      }
+      return current
+    }
+
+    if (monthsInFlight) {
+      const inflightData = await monthsInFlight
+      if (!inflightData) {
+        setMonthOptions([])
+        return monthValue(new Date())
+      }
+      const current = inflightData.currentMonth ?? monthValue(nowInAppTimeZone())
+      const list = mapMonthsToOptions(inflightData.months)
+      const defaultMonth = list.some((item) => item.value === current)
+        ? current
+        : list[0]?.value
+      setMonthOptions(list)
+      if (defaultMonth) {
+        setMonthFilter(defaultMonth)
+        return defaultMonth
+      }
+      return current
+    }
+
+    const pending = apiGet<{ months: string[]; currentMonth?: string }>(
       "/api/challenges/months"
     )
-    if (!response.ok) {
+      .then((response) => (response.ok ? response.data : null))
+      .finally(() => {
+        if (monthsInFlight === pending) {
+          monthsInFlight = null
+        }
+      })
+
+    monthsInFlight = pending
+    const data = await pending
+    if (!data) {
       setMonthOptions([])
       return monthValue(new Date())
     }
 
-    const current =
-      response.data.currentMonth ?? monthValue(nowInAppTimeZone())
-    const list = response.data.months
-      .map((value) => ({ value, label: monthLabel(monthDateFromValue(value)) }))
-      .sort((a, b) => b.value.localeCompare(a.value))
+    const current = data.currentMonth ?? monthValue(nowInAppTimeZone())
+    const list = mapMonthsToOptions(data.months)
+
+    monthsCache = {
+      data,
+      cachedAt: nowMs(),
+    }
 
     const defaultMonth = list.some((item) => item.value === current)
       ? current
@@ -216,31 +408,120 @@ export default function DesafiosClient({
   }, [])
 
   const loadChallenges = useCallback(
-    async (monthOverride?: string) => {
-      setLoading(true)
+    async (
+      monthOverride?: string,
+      options?: { bypassCache?: boolean }
+    ) => {
+      const filters = filtersRef.current
+      const params = new URLSearchParams()
+      if (filters.rankingFilter !== "all") params.set("ranking", filters.rankingFilter)
+      const selectedMonth = monthOverride ?? filters.monthFilter
+      if (selectedMonth) params.set("month", selectedMonth)
+      if (filters.statusFilter !== "all") params.set("status", filters.statusFilter)
+      if (filters.sortFilter) params.set("sort", filters.sortFilter)
+      const queryKey = params.toString()
+      const inFlightKey = options?.bypassCache ? `${queryKey}:fresh` : queryKey
+      const requestParams = new URLSearchParams(params)
+      if (options?.bypassCache) {
+        requestParams.set("fresh", "1")
+      }
+
+      const cached = challengesCache.get(queryKey)
+      if (!options?.bypassCache && cached && isFresh(cached.cachedAt)) {
+        setChallenges(cached.data.items)
+        setIsAdmin(cached.data.isAdmin)
+        setLoading(false)
+        setRefreshing(false)
+        setError(null)
+        return
+      }
+
+      const pendingCached = challengesInFlight.get(inFlightKey)
+      if (pendingCached) {
+        const inflightData = await pendingCached
+        if (!inflightData) {
+          setError("Erro ao carregar dados.")
+          setLoading(false)
+          setRefreshing(false)
+          return
+        }
+        setChallenges(inflightData.items)
+        setIsAdmin(inflightData.isAdmin)
+        setLoading(false)
+        setRefreshing(false)
+        setError(null)
+        return
+      }
+
+      const preserveUi = challengesRef.current.length > 0
+      if (preserveUi) {
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
       setError(null)
 
-      const params = new URLSearchParams()
-      if (rankingFilter !== "all") params.set("ranking", rankingFilter)
-    const monthValue = monthOverride ?? monthFilter
-    if (monthValue) params.set("month", monthValue)
-    if (statusFilter !== "all") params.set("status", statusFilter)
-    if (sortFilter) params.set("sort", sortFilter)
+      const pending = apiGet<ChallengesResponse>(
+        `/api/challenges?${requestParams.toString()}`,
+        {
+          fresh: Boolean(options?.bypassCache),
+        }
+      )
+        .then((response) => (response.ok ? response.data : null))
+        .finally(() => {
+          if (challengesInFlight.get(inFlightKey) === pending) {
+            challengesInFlight.delete(inFlightKey)
+          }
+        })
 
-    const response = await apiGet<ChallengeItem[]>(
-      `/api/challenges?${params.toString()}`
-    )
+      challengesInFlight.set(inFlightKey, pending)
+      const data = await pending
 
-    if (!response.ok) {
-      setError(response.message)
+      if (!data) {
+        setError("Erro ao carregar dados.")
+        setLoading(false)
+        setRefreshing(false)
+        return
+      }
+
+      writeChallengesCache(queryKey, data)
+      setChallenges(data.items)
+      setIsAdmin(data.isAdmin)
       setLoading(false)
-      return
-    }
+      setRefreshing(false)
+    },
+    []
+  )
 
-    setChallenges(response.data)
-    setLoading(false)
-  },
-  [rankingFilter, monthFilter, statusFilter, sortFilter]
+  const handleMonthFilterChange = useCallback(
+    (value: string) => {
+      setMonthFilter(value)
+      void loadChallenges(value)
+    },
+    [loadChallenges]
+  )
+
+  const handleChallengeActionComplete = useCallback(() => {
+    clearChallengesCaches()
+    void loadChallenges(undefined, { bypassCache: true })
+  }, [loadChallenges])
+
+  const challengeCards = useMemo(
+    () =>
+      deferredChallenges.map((challenge, index) => (
+        <ChallengeCard
+          key={challenge.id}
+          challenge={challenge}
+          isAdmin={isAdmin}
+          onActionComplete={handleChallengeActionComplete}
+          className={
+            index % 2 === 0
+              ? "bg-sky-50/80 dark:bg-slate-900/60 [content-visibility:auto] [contain-intrinsic-size:144px]"
+              : "bg-white dark:bg-slate-800/60 [content-visibility:auto] [contain-intrinsic-size:144px]"
+          }
+        />
+      )),
+    [deferredChallenges, handleChallengeActionComplete, isAdmin]
   )
 
   useEffect(() => {
@@ -248,10 +529,19 @@ export default function DesafiosClient({
     initializedRef.current = true
 
     const init = async () => {
-      const [, current] = await Promise.all([loadRankings(), loadMonths()])
-      await loadChallenges(current)
+      const initialMonth = filtersRef.current.monthFilter
+      const rankingsPromise = loadRankings()
+      const monthsPromise = loadMonths()
+      const challengesPromise = loadChallenges(initialMonth)
+      const current = await monthsPromise
+      if (current && current !== initialMonth) {
+        await loadChallenges(current)
+      } else {
+        await challengesPromise
+      }
+      await rankingsPromise
     }
-    init()
+    void init()
   }, [loadRankings, loadMonths, loadChallenges])
 
   useEffect(() => {
@@ -261,6 +551,12 @@ export default function DesafiosClient({
       setMonthFilter(months[0]?.value ?? monthValue(nowInAppTimeZone()))
     }
   }, [months, monthFilter])
+
+  useEffect(() => {
+    if (!deferredChallenges.length) return
+    prefetchApiGet("/api/dashboard", { minIntervalMs: 25_000 })
+    prefetchApiGet("/api/rankings", { minIntervalMs: 25_000 })
+  }, [deferredChallenges.length])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -273,22 +569,55 @@ export default function DesafiosClient({
   }, [isAdmin, rankings, rankingFilter])
 
   useEffect(() => {
-    if (!isAdmin || !createRankingId) return
+    if (!isAdmin || !showCreate || !createRankingId) return
     let mounted = true
     const loadPlayers = async () => {
+      const cached = rankingPlayersCache.get(createRankingId)
+      if (cached && isFresh(cached.cachedAt)) {
+        const combined = [...cached.data.players, ...cached.data.suspended]
+        setCreatePlayers(combined)
+        setCreatePlayersLoading(false)
+        return
+      }
+
+      const pendingCached = rankingPlayersInFlight.get(createRankingId)
+      if (pendingCached) {
+        const inflightData = await pendingCached
+        if (!mounted) return
+        if (!inflightData) {
+          setCreatePlayers([])
+          setCreatePlayersLoading(false)
+          return
+        }
+        const combined = [...inflightData.players, ...inflightData.suspended]
+        setCreatePlayers(combined)
+        setCreatePlayersLoading(false)
+        return
+      }
+
       setCreatePlayersLoading(true)
-      const response = await apiGet<RankingPlayersResponse>(
-        `/api/rankings/${createRankingId}/players`
+      const pending = apiGet<RankingPlayersResponse>(
+        `/api/rankings/${createRankingId}/players?compact=1`
       )
+        .then((response) => (response.ok ? response.data : null))
+        .finally(() => {
+          if (rankingPlayersInFlight.get(createRankingId) === pending) {
+            rankingPlayersInFlight.delete(createRankingId)
+          }
+        })
+
+      rankingPlayersInFlight.set(createRankingId, pending)
+      const data = await pending
       if (!mounted) return
 
-      if (!response.ok) {
+      if (!data) {
         setCreatePlayers([])
         setCreatePlayersLoading(false)
         return
       }
 
-      const combined = [...response.data.players, ...response.data.suspended]
+      writeRankingPlayersCache(createRankingId, data)
+      const combined = [...data.players, ...data.suspended]
       setCreatePlayers(combined)
       setCreatePlayersLoading(false)
     }
@@ -307,7 +636,7 @@ export default function DesafiosClient({
     return () => {
       mounted = false
     }
-  }, [isAdmin, createRankingId])
+  }, [isAdmin, showCreate, createRankingId])
 
   const handleCreateChallenge = async () => {
     if (!createRankingId || !createChallengerId || !createChallengedId) {
@@ -433,7 +762,8 @@ export default function DesafiosClient({
           `Desafio criado, mas falhou registrar resultado: ${resultResponse.message}`
         )
         setCreateLoading(false)
-        loadChallenges()
+        clearChallengesCaches()
+        loadChallenges(undefined, { bypassCache: true })
         return
       }
 
@@ -443,7 +773,8 @@ export default function DesafiosClient({
     }
 
     setCreateLoading(false)
-    loadChallenges()
+    clearChallengesCaches()
+    loadChallenges(undefined, { bypassCache: true })
     loadMonths()
   }
 
@@ -483,9 +814,9 @@ export default function DesafiosClient({
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
-                    {rankings.map((ranking) => (
-                      <SelectItem key={ranking.id} value={String(ranking.id)}>
-                        {ranking.name}
+                    {rankingSelectOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -519,23 +850,14 @@ export default function DesafiosClient({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {createPlayers.map((player) => {
-                      const label = `${formatName(
-                        player.firstName,
-                        player.lastName,
-                        player.nickname
-                      )} (${player.position || "-"})${
-                        player.isSuspended ? " - Licenca" : ""
-                      }`
-                      return (
-                        <SelectItem
-                          key={`challenger-${player.userId}`}
-                          value={String(player.userId)}
-                        >
-                          {label}
-                        </SelectItem>
-                      )
-                    })}
+                    {createPlayerSelectOptions.map((option) => (
+                      <SelectItem
+                        key={`challenger-${option.value}`}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -556,23 +878,14 @@ export default function DesafiosClient({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {createPlayers.map((player) => {
-                      const label = `${formatName(
-                        player.firstName,
-                        player.lastName,
-                        player.nickname
-                      )} (${player.position || "-"})${
-                        player.isSuspended ? " - Licenca" : ""
-                      }`
-                      return (
-                        <SelectItem
-                          key={`challenged-${player.userId}`}
-                          value={String(player.userId)}
-                        >
-                          {label}
-                        </SelectItem>
-                      )
-                    })}
+                    {createPlayerSelectOptions.map((option) => (
+                      <SelectItem
+                        key={`challenged-${option.value}`}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -708,9 +1021,9 @@ export default function DesafiosClient({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                {rankings.map((ranking) => (
-                  <SelectItem key={ranking.id} value={String(ranking.id)}>
-                    {ranking.name}
+                {rankingSelectOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -720,10 +1033,7 @@ export default function DesafiosClient({
             <Label htmlFor="month-select">Mes</Label>
             <Select
               value={monthFilter}
-              onValueChange={(value) => {
-                setMonthFilter(value)
-                loadChallenges(value)
-              }}
+              onValueChange={handleMonthFilterChange}
             >
               <SelectTrigger id="month-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
@@ -775,6 +1085,10 @@ export default function DesafiosClient({
           </div>
         </CardContent>
       </Card>
+
+      {refreshing ? (
+        <p className="text-xs text-muted-foreground">Atualizando desafios...</p>
+      ) : null}
 
       <Card>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -848,21 +1162,9 @@ export default function DesafiosClient({
           title="Nao foi possivel carregar os desafios"
           description={error}
         />
-      ) : challenges.length ? (
+      ) : deferredChallenges.length ? (
         <div className="space-y-4">
-          {challenges.map((challenge, index) => (
-            <ChallengeCard
-              key={challenge.id}
-              challenge={challenge}
-              isAdmin={isAdmin}
-              onActionComplete={loadChallenges}
-              className={
-                index % 2 === 0
-                  ? "bg-sky-50/80 dark:bg-slate-900/60"
-                  : "bg-white dark:bg-slate-800/60"
-              }
-            />
-          ))}
+          {challengeCards}
         </div>
       ) : (
         <EmptyState

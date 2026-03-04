@@ -8,6 +8,8 @@ export type UserAvatarProps = {
   src?: string | null
   fallbackLabel?: string
   size?: number | string
+  sizes?: string
+  priority?: boolean
   className?: string
 }
 
@@ -16,6 +18,8 @@ export default function UserAvatar({
   src,
   fallbackLabel,
   size = 32,
+  sizes,
+  priority = false,
   className,
 }: UserAvatarProps) {
   const initials = getInitials(name)
@@ -26,6 +30,8 @@ export default function UserAvatar({
       : null
 
   const sizeValue = typeof size === "number" ? `${size}px` : size
+  const resolvedSizes =
+    sizes ?? (typeof size === "number" ? `${size}px` : "(max-width: 768px) 40px, 48px")
 
   return (
     <div
@@ -42,8 +48,9 @@ export default function UserAvatar({
           src={normalizedSrc}
           alt={name}
           fill
-          unoptimized
-          sizes={typeof size === "number" ? `${size}px` : "100vw"}
+          quality={60}
+          priority={priority}
+          sizes={resolvedSizes}
           className="object-cover"
         />
       ) : (

@@ -5,7 +5,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/auth/types"
 
 const publicRoutes = ["/login", "/forgot-password", "/reset-password"]
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (publicRoutes.some((route) => pathname.startsWith(route))) {
@@ -24,17 +24,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url))
   }
 
-  const cookie = request.headers.get("cookie") ?? ""
-  const internalBase =
-    process.env.INTERNAL_APP_URL?.trim() || request.nextUrl.origin
-  const validation = await fetch(new URL("/api/auth/validate", internalBase), {
-    headers: { cookie },
-  })
-
-  if (!validation.ok) {
-    return NextResponse.redirect(new URL("/login", request.url))
-  }
-
   if (pathname.startsWith("/admin")) {
     if (pathname === "/admin" || pathname === "/admin/") {
       return NextResponse.redirect(new URL("/admin/usuarios", request.url))
@@ -49,9 +38,7 @@ export async function middleware(request: NextRequest) {
       "/admin/usuarios",
       "/admin/rodadas",
       "/admin/config",
-    ].some(
-      (path) => pathname === path || pathname.startsWith(`${path}/`)
-    )
+    ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
 
     if (!isCollaborator || !collaboratorAllowed) {
       return NextResponse.redirect(new URL("/dashboard", request.url))

@@ -50,12 +50,64 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const
+const PRIVATE_SHORT_CACHE_HEADERS = {
+  "Cache-Control": "private, max-age=6, stale-while-revalidate=18",
+  Vary: "Cookie",
+} as const
+const CHALLENGES_RESPONSE_CACHE_TTL_MS = 8_000
+const MAX_CHALLENGES_RESPONSE_CACHE_ENTRIES = 300
 
-const jsonNoStore = (body: unknown, init?: { status?: number }) =>
+type ChallengesResponsePayload = {
+  ok: true
+  data: {
+    items: unknown[]
+    isAdmin: boolean
+  }
+}
+type ChallengesResponseCacheEntry = {
+  payload: ChallengesResponsePayload
+  cachedAt: number
+}
+const challengesResponseCache = new Map<string, ChallengesResponseCacheEntry>()
+const challengesResponseInFlight = new Map<
+  string,
+  Promise<ChallengesResponsePayload>
+>()
+
+const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers: NO_STORE_HEADERS,
+    headers:
+      init?.status && init.status >= 400
+        ? NO_STORE_HEADERS
+        : PRIVATE_SHORT_CACHE_HEADERS,
   })
+
+const readChallengesResponseCache = (cacheKey: string) => {
+  const cached = challengesResponseCache.get(cacheKey)
+  if (!cached) return null
+  if (Date.now() - cached.cachedAt > CHALLENGES_RESPONSE_CACHE_TTL_MS) {
+    challengesResponseCache.delete(cacheKey)
+    return null
+  }
+  return cached.payload
+}
+
+const writeChallengesResponseCache = (
+  cacheKey: string,
+  payload: ChallengesResponsePayload
+) => {
+  if (challengesResponseCache.size >= MAX_CHALLENGES_RESPONSE_CACHE_ENTRIES) {
+    const oldestKey = challengesResponseCache.keys().next().value
+    if (oldestKey) {
+      challengesResponseCache.delete(oldestKey)
+    }
+  }
+  challengesResponseCache.set(cacheKey, {
+    payload,
+    cachedAt: Date.now(),
+  })
+}
 
 const toZonedMonthStart = (value: string) => {
   const [yearRaw, monthRaw] = value.split("-")
@@ -71,7 +123,7 @@ const toZonedMonthStart = (value: string) => {
 export async function GET(request: Request) {
   const session = await getSessionFromCookies()
   if (!session) {
-    return jsonNoStore(
+    return jsonResponse(
       { ok: false, message: "Nao autorizado." },
       { status: 401 }
     )
@@ -86,7 +138,7 @@ export async function GET(request: Request) {
   })
 
   if (!parsed.success) {
-    return jsonNoStore(
+    return jsonResponse(
       { ok: false, message: "Filtros invalidos." },
       { status: 400 }
     )
@@ -96,6 +148,29 @@ export async function GET(request: Request) {
   const rankingFilter = parsed.data.ranking
   const statusFilter = parsed.data.status
   const sortKey = parsed.data.sort ?? "recent"
+  const freshParam = (searchParams.get("fresh") ?? "").toLowerCase()
+  const forceFresh =
+    freshParam === "1" || freshParam === "true" || freshParam === "yes"
+  const responseCacheKey = `${session.role}:${session.userId}:${rankingFilter ?? "all"}:${parsed.data.month ?? "open"}:${statusFilter ?? "all"}:${sortKey}`
+  const inFlightKey = forceFresh ? `${responseCacheKey}:fresh` : responseCacheKey
+
+  if (forceFresh) {
+    challengesResponseCache.delete(responseCacheKey)
+  } else {
+    const cached = readChallengesResponseCache(responseCacheKey)
+    if (cached) {
+      return jsonResponse(cached)
+    }
+  }
+  const pendingCached = challengesResponseInFlight.get(inFlightKey)
+  if (pendingCached) {
+    const payload = await pendingCached
+    return jsonResponse(payload)
+  }
+
+  const pending = (async (): Promise<ChallengesResponsePayload> => {
+  const useDbSort =
+    sortKey === "recent" || sortKey === "oldest" || sortKey === "played_recent"
 
   const monthValue = parsed.data.month
   const monthStart = monthValue ? toZonedMonthStart(monthValue) : null
@@ -121,6 +196,23 @@ export async function GET(request: Request) {
 
   if (statusFilter === "cancelled") {
     where.status = "cancelled"
+  } else if (
+    statusFilter === "scheduled" ||
+    statusFilter === "accepted" ||
+    statusFilter === "declined"
+  ) {
+    where.status = statusFilter
+  } else if (statusFilter === "completed") {
+    where.status = { not: "cancelled" }
+    where.OR = [
+      { status: "completed" },
+      { winner: { not: null } },
+      { played_at: { not: null } },
+      { challenger_games: { not: null } },
+      { challenged_games: { not: null } },
+      { challenger_walkover: true },
+      { challenged_walkover: true },
+    ]
   } else {
     where.status = { not: "cancelled" }
   }
@@ -140,8 +232,15 @@ export async function GET(request: Request) {
     where.rankings = { is_active: true }
   }
 
+  const orderBy = useDbSort
+    ? sortKey === "oldest"
+      ? [{ played_at: "asc" as const }, { scheduled_for: "asc" as const }, { created_at: "asc" as const }, { id: "asc" as const }]
+      : [{ played_at: "desc" as const }, { scheduled_for: "desc" as const }, { created_at: "desc" as const }, { id: "desc" as const }]
+    : undefined
+
   const challenges = await db.challenges.findMany({
     where,
+    orderBy,
     select: {
       id: true,
       status: true,
@@ -174,7 +273,17 @@ export async function GET(request: Request) {
 
   const viewerId = Number(session.userId)
   const nowMs = Date.now()
-  const normalizedChallenges = challenges.map((challenge) => {
+  const preparedChallenges: Array<{
+    challenge: (typeof challenges)[number]
+    normalizedStatus: ReturnType<typeof resolveChallengeStatus>
+    resolvedWinner: ReturnType<typeof resolveChallengeWinner>
+    sortTime: number
+    playedAtTime: number
+    challengerName: string
+    challengedName: string
+  }> = []
+
+  for (const challenge of challenges) {
     const normalizedStatus = resolveChallengeStatus({
       status: challenge.status,
       winner: challenge.winner,
@@ -184,73 +293,74 @@ export async function GET(request: Request) {
       challenger_walkover: challenge.challenger_walkover,
       challenged_walkover: challenge.challenged_walkover,
     })
-    const resolvedWinner = resolveChallengeWinner({
-      winner: challenge.winner,
-      challenger_games: challenge.challenger_games,
-      challenged_games: challenge.challenged_games,
-      challenger_walkover: challenge.challenger_walkover,
-      challenged_walkover: challenge.challenged_walkover,
-    })
-    const sortTime =
-      challenge.played_at?.getTime() ??
-      challenge.scheduled_for?.getTime() ??
-      challenge.created_at?.getTime() ??
-      0
 
-    return {
+    if (
+      statusFilter &&
+      statusFilter !== "cancelled" &&
+      normalizedStatus !== statusFilter
+    ) {
+      continue
+    }
+
+    preparedChallenges.push({
       challenge,
       normalizedStatus,
-      resolvedWinner,
-      sortTime,
+      resolvedWinner: resolveChallengeWinner({
+        winner: challenge.winner,
+        challenger_games: challenge.challenger_games,
+        challenged_games: challenge.challenged_games,
+        challenger_walkover: challenge.challenger_walkover,
+        challenged_walkover: challenge.challenged_walkover,
+      }),
+      sortTime:
+        challenge.played_at?.getTime() ??
+        challenge.scheduled_for?.getTime() ??
+        challenge.created_at?.getTime() ??
+        0,
       playedAtTime: challenge.played_at?.getTime() ?? 0,
       challengerName: formatName(
         challenge.users_challenges_challenger_idTousers.first_name,
         challenge.users_challenges_challenger_idTousers.last_name,
         challenge.users_challenges_challenger_idTousers.nickname
       ),
-    }
-  })
+      challengedName: formatName(
+        challenge.users_challenges_challenged_idTousers.first_name,
+        challenge.users_challenges_challenged_idTousers.last_name,
+        challenge.users_challenges_challenged_idTousers.nickname
+      ),
+    })
+  }
 
-  const filteredByStatus =
-    !statusFilter || statusFilter === "cancelled"
-      ? normalizedChallenges
-      : normalizedChallenges.filter(
-          (entry) => entry.normalizedStatus === statusFilter
-        )
+  const sorted = useDbSort
+    ? preparedChallenges
+    : preparedChallenges.sort((a, b) => {
+        switch (sortKey) {
+          case "pending_first":
+            return (
+              (a.normalizedStatus === "scheduled" ||
+              a.normalizedStatus === "accepted"
+                ? 0
+                : 1) -
+                (b.normalizedStatus === "scheduled" ||
+                b.normalizedStatus === "accepted"
+                  ? 0
+                  : 1) ||
+              a.sortTime - b.sortTime
+            )
+          case "completed_first":
+            return (
+              (a.normalizedStatus === "completed" ? 0 : 1) -
+                (b.normalizedStatus === "completed" ? 0 : 1) ||
+              b.playedAtTime - a.playedAtTime
+            )
+          case "challenger":
+            return a.challengerName.localeCompare(b.challengerName)
+          default:
+            return b.sortTime - a.sortTime
+        }
+      })
 
-  const sorted = [...filteredByStatus].sort((a, b) => {
-    switch (sortKey) {
-      case "oldest":
-        return a.sortTime - b.sortTime
-      case "played_recent":
-        return b.playedAtTime - a.playedAtTime || b.sortTime - a.sortTime
-      case "pending_first":
-        return (
-          (a.normalizedStatus === "scheduled" ||
-          a.normalizedStatus === "accepted"
-            ? 0
-            : 1) -
-            (b.normalizedStatus === "scheduled" ||
-            b.normalizedStatus === "accepted"
-              ? 0
-              : 1) ||
-          a.sortTime - b.sortTime
-        )
-      case "completed_first":
-        return (
-          (a.normalizedStatus === "completed" ? 0 : 1) -
-            (b.normalizedStatus === "completed" ? 0 : 1) ||
-          b.playedAtTime - a.playedAtTime
-        )
-      case "challenger":
-        return a.challengerName.localeCompare(b.challengerName)
-      default:
-        return b.sortTime - a.sortTime
-    }
-  })
-
-  const data = sorted
-    .map((entry) => {
+  const data = sorted.map((entry) => {
     const challenge = entry.challenge
     const challenger = challenge.users_challenges_challenger_idTousers
     const challenged = challenge.users_challenges_challenged_idTousers
@@ -295,32 +405,41 @@ export async function GET(request: Request) {
       challengedRetired: Boolean(challenge.challenged_retired),
       challenger: {
         id: challenger.id,
-        name: formatName(
-          challenger.first_name,
-          challenger.last_name,
-          challenger.nickname
-        ),
+        name: entry.challengerName,
         avatarUrl: challenger.avatarUrl ?? null,
       },
       challenged: {
         id: challenged.id,
-        name: formatName(
-          challenged.first_name,
-          challenged.last_name,
-          challenged.nickname
-        ),
+        name: entry.challengedName,
         avatarUrl: challenged.avatarUrl ?? null,
       },
       cancelWindowOpen,
       cancelWindowClosesAt,
-      canAccept: false,
-      canDecline: false,
       canCancel,
       canResult,
     }
   })
 
-  return jsonNoStore({ ok: true, data })
+  const responseBody: ChallengesResponsePayload = {
+    ok: true,
+    data: {
+      items: data,
+      isAdmin,
+    },
+  }
+
+  writeChallengesResponseCache(responseCacheKey, responseBody)
+  return responseBody
+  })()
+
+  challengesResponseInFlight.set(inFlightKey, pending)
+  const payload = await pending.finally(() => {
+    if (challengesResponseInFlight.get(inFlightKey) === pending) {
+      challengesResponseInFlight.delete(inFlightKey)
+    }
+  })
+
+  return jsonResponse(payload)
 }
 
 export async function POST(request: Request) {
@@ -693,6 +812,8 @@ export async function POST(request: Request) {
 
     return challenge
   })
+
+  challengesResponseCache.clear()
 
   return NextResponse.json(
     { ok: true, data: { id: created.id } },
