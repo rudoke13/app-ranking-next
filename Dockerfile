@@ -68,8 +68,8 @@ RUN set -e; \
     export DATABASE_URL="$DB_URL"; \
     if [ -z "${DIRECT_URL:-}" ]; then export DIRECT_URL="$DB_URL"; else export DIRECT_URL="${DIRECT_URL}"; fi; \
     export NEXT_PRIVATE_BUILD_WORKER=1; \
-    export CI=1; \
-    npx next build --webpack --experimental-build-mode=compile
+    export NEXT_TELEMETRY_DISABLED=1; \
+    (npx next build --webpack --experimental-build-mode=compile || npm run build)
 
 FROM node:20-alpine AS runner
 WORKDIR /app
