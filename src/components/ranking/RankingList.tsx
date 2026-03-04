@@ -11,7 +11,16 @@ import {
   type DragEvent,
 } from "react"
 import Link from "next/link"
-import { Eye, GripVertical, Pencil, Swords, Users, X } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  GripVertical,
+  Pencil,
+  Swords,
+  Users,
+  X,
+} from "lucide-react"
 
 import EmptyState from "@/components/app/EmptyState"
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
@@ -369,6 +378,8 @@ type ActivePlayerCardView = {
   player: PlayerItem
   name: string
   positionLabel: string
+  canMoveUp: boolean
+  canMoveDown: boolean
   statusBadges: PlayerStatusBadge[]
   showChallengeButton: boolean
   challengeDisabled: boolean
@@ -440,8 +451,11 @@ type RankingPlayerCardProps = {
   onOpenHistory: (playerId: number) => void
   onChallenge: (playerId: number) => void
   onOpenEdit: (player: PlayerItem) => void
+  onMoveUp: (playerId: number) => void
+  onMoveDown: (playerId: number) => void
   onDragStart: (event: DragEvent<HTMLDivElement>, playerId: number) => void
-  onDragOver: (event: DragEvent<HTMLDivElement>, playerId: number) => void
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void
+  onDrop: (event: DragEvent<HTMLDivElement>, playerId: number) => void
   onDragEnd: () => void
 }
 
@@ -456,8 +470,11 @@ const RankingPlayerCard = memo(
     onOpenHistory,
     onChallenge,
     onOpenEdit,
+    onMoveUp,
+    onMoveDown,
     onDragStart,
     onDragOver,
+    onDrop,
     onDragEnd,
   }: RankingPlayerCardProps) {
     const badgeClassName =
@@ -474,16 +491,52 @@ const RankingPlayerCard = memo(
         }`}
         draggable={editing}
         onDragStart={(event) => onDragStart(event, row.player.userId)}
-        onDragOver={(event) => onDragOver(event, row.player.userId)}
-        onDrop={onDragEnd}
+        onDragOver={onDragOver}
+        onDrop={(event) => onDrop(event, row.player.userId)}
         onDragEnd={onDragEnd}
         aria-grabbed={editing && isDragging}
       >
         <CardContent className="flex items-start justify-between gap-2 px-3 sm:items-center sm:gap-3 sm:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-4">
             {editing ? (
-              <div className="flex size-6 items-center justify-center text-muted-foreground sm:size-8">
-                <GripVertical className="size-3.5 sm:size-5" />
+              <div className="flex items-center gap-1">
+                <div className="flex size-6 items-center justify-center text-muted-foreground sm:size-8">
+                  <GripVertical className="size-3.5 sm:size-5" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 sm:h-6 sm:w-6"
+                    disabled={!row.canMoveUp}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onMoveUp(row.player.userId)
+                    }}
+                    aria-label={`Mover ${row.name} para cima`}
+                  >
+                    <ChevronUp className="size-3 sm:size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 sm:h-6 sm:w-6"
+                    disabled={!row.canMoveDown}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onMoveDown(row.player.userId)
+                    }}
+                    aria-label={`Mover ${row.name} para baixo`}
+                  >
+                    <ChevronDown className="size-3 sm:size-3.5" />
+                  </Button>
+                </div>
               </div>
             ) : null}
             {editing ? (
@@ -1337,14 +1390,29 @@ export default function RankingList() {
     event.dataTransfer.setData("text/plain", String(playerId))
   }, [editing])
 
-  const handleDragOver = useCallback((
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!editing) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+  }, [editing])
+
+  const handleDrop = useCallback((
     event: DragEvent<HTMLDivElement>,
     overId: number
   ) => {
-    if (!editing || draggingId === null || draggingId === overId) return
+    if (!editing) return
     event.preventDefault()
+    const payload = event.dataTransfer.getData("text/plain")
+    const draggedFromPayload = Number(payload)
+    const draggedId = Number.isFinite(draggedFromPayload) && draggedFromPayload > 0
+      ? draggedFromPayload
+      : draggingId
+    if (draggedId === null || draggedId === overId) {
+      setDraggingId(null)
+      return
+    }
     setDraftPlayers((current) => {
-      const oldIndex = current.findIndex((player) => player.userId === draggingId)
+      const oldIndex = current.findIndex((player) => player.userId === draggedId)
       const newIndex = current.findIndex((player) => player.userId === overId)
       if (oldIndex === -1 || newIndex === -1) return current
       const next = [...current]
@@ -1352,11 +1420,34 @@ export default function RankingList() {
       next.splice(newIndex, 0, moved)
       return next
     })
+    setDraggingId(null)
   }, [draggingId, editing])
 
   const handleDragEnd = useCallback(() => {
     setDraggingId(null)
   }, [])
+
+  const handleMovePlayer = useCallback((playerId: number, direction: -1 | 1) => {
+    if (!editing) return
+    setDraftPlayers((current) => {
+      const currentIndex = current.findIndex((player) => player.userId === playerId)
+      if (currentIndex === -1) return current
+      const targetIndex = currentIndex + direction
+      if (targetIndex < 0 || targetIndex >= current.length) return current
+      const next = [...current]
+      const [moved] = next.splice(currentIndex, 1)
+      next.splice(targetIndex, 0, moved)
+      return next
+    })
+  }, [editing])
+
+  const handleMoveUp = useCallback((playerId: number) => {
+    handleMovePlayer(playerId, -1)
+  }, [handleMovePlayer])
+
+  const handleMoveDown = useCallback((playerId: number) => {
+    handleMovePlayer(playerId, 1)
+  }, [handleMovePlayer])
 
   const handleSaveOrder = useCallback(async () => {
     if (!playersData || !editing) return
@@ -1485,7 +1576,13 @@ export default function RankingList() {
       const badgeClassName =
         "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
       const name = formatName(player.firstName, player.lastName, player.nickname)
-      const positionLabel = player.position > 0 ? `#${player.position}` : "-"
+      const positionLabel = editing
+        ? `#${index + 1}`
+        : player.position > 0
+        ? `#${player.position}`
+        : "-"
+      const canMoveUp = editing && index > 0
+      const canMoveDown = editing && index < deferredActivePlayers.length - 1
       const statusBadges: PlayerStatusBadge[] = []
 
       if (player.isBluePoint) {
@@ -1575,6 +1672,8 @@ export default function RankingList() {
         player,
         name,
         positionLabel,
+        canMoveUp,
+        canMoveDown,
         statusBadges,
         showChallengeButton,
         challengeDisabled,
@@ -1614,8 +1713,11 @@ export default function RankingList() {
           onOpenHistory={handleSelectPlayer}
           onChallenge={handleChallenge}
           onOpenEdit={openEditModal}
+          onMoveUp={handleMoveUp}
+          onMoveDown={handleMoveDown}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
+          onDrop={handleDrop}
           onDragEnd={handleDragEnd}
         />
       )),
@@ -1627,7 +1729,10 @@ export default function RankingList() {
       editing,
       handleSelectPlayer,
       handleChallenge,
+      handleMoveDown,
+      handleMoveUp,
       handleDragEnd,
+      handleDrop,
       handleDragOver,
       handleDragStart,
       openEditModal,
