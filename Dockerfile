@@ -8,49 +8,28 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 
-ARG DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public
-ARG DIRECT_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public
-ARG JWT_SECRET=build-only-jwt-secret
-ARG APP_URL=http://localhost:3000
-ARG INTERNAL_APP_URL=http://localhost:3000
-ARG APP_TIMEZONE=America/Sao_Paulo
-ARG S3_ENDPOINT_INTERNAL=http://127.0.0.1:9000
-ARG S3_PUBLIC_ENDPOINT=http://127.0.0.1:9000
-ARG S3_ENDPOINT=http://127.0.0.1:9000
-ARG S3_REGION=us-east-1
-ARG S3_ACCESS_KEY=build-access-key
-ARG S3_SECRET_KEY=build-secret-key
-ARG S3_BUCKET=build-bucket
-ARG S3_PUBLIC_BASE_URL=https://example.com/build-bucket
-ARG S3_FORCE_PATH_STYLE=true
-ARG NEXT_PUBLIC_APP_NAME="Ranking TCC"
-ARG SMTP_HOST=localhost
-ARG SMTP_PORT=1025
-ARG SMTP_USER=build
-ARG SMTP_PASS=build
-ARG SMTP_FROM=no-reply@example.com
-
-ENV DATABASE_URL=$DATABASE_URL
-ENV DIRECT_URL=$DIRECT_URL
-ENV JWT_SECRET=$JWT_SECRET
-ENV APP_URL=$APP_URL
-ENV INTERNAL_APP_URL=$INTERNAL_APP_URL
-ENV APP_TIMEZONE=$APP_TIMEZONE
-ENV S3_ENDPOINT_INTERNAL=$S3_ENDPOINT_INTERNAL
-ENV S3_PUBLIC_ENDPOINT=$S3_PUBLIC_ENDPOINT
-ENV S3_ENDPOINT=$S3_ENDPOINT
-ENV S3_REGION=$S3_REGION
-ENV S3_ACCESS_KEY=$S3_ACCESS_KEY
-ENV S3_SECRET_KEY=$S3_SECRET_KEY
-ENV S3_BUCKET=$S3_BUCKET
-ENV S3_PUBLIC_BASE_URL=$S3_PUBLIC_BASE_URL
-ENV S3_FORCE_PATH_STYLE=$S3_FORCE_PATH_STYLE
-ENV NEXT_PUBLIC_APP_NAME="${NEXT_PUBLIC_APP_NAME}"
-ENV SMTP_HOST=$SMTP_HOST
-ENV SMTP_PORT=$SMTP_PORT
-ENV SMTP_USER=$SMTP_USER
-ENV SMTP_PASS=$SMTP_PASS
-ENV SMTP_FROM=$SMTP_FROM
+# Build must never depend on production secrets or external services.
+ENV DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public" \
+    DIRECT_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public" \
+    JWT_SECRET="build-only-jwt-secret" \
+    APP_URL="http://localhost:3000" \
+    INTERNAL_APP_URL="http://localhost:3000" \
+    APP_TIMEZONE="America/Sao_Paulo" \
+    S3_ENDPOINT_INTERNAL="http://127.0.0.1:9000" \
+    S3_PUBLIC_ENDPOINT="http://127.0.0.1:9000" \
+    S3_ENDPOINT="http://127.0.0.1:9000" \
+    S3_REGION="us-east-1" \
+    S3_ACCESS_KEY="build-access-key" \
+    S3_SECRET_KEY="build-secret-key" \
+    S3_BUCKET="build-bucket" \
+    S3_PUBLIC_BASE_URL="https://example.com/build-bucket" \
+    S3_FORCE_PATH_STYLE="true" \
+    NEXT_PUBLIC_APP_NAME="Ranking TCC" \
+    SMTP_HOST="localhost" \
+    SMTP_PORT="1025" \
+    SMTP_USER="build" \
+    SMTP_PASS="build" \
+    SMTP_FROM="no-reply@example.com"
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
