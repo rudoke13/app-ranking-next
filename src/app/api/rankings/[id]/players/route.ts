@@ -15,7 +15,6 @@ import { getAccessThreshold, maxPositionsUp } from "@/lib/domain/ranking"
 import { db } from "@/lib/db"
 import { canManageRanking } from "@/lib/domain/collaborator-access"
 import {
-  resolveChallengeStatus,
   resolveChallengeWinner,
 } from "@/lib/challenges/result"
 
@@ -460,21 +459,10 @@ export async function GET(
           OR: [
             {
               status: "completed",
-              OR: [
-                {
-                  played_at: {
-                    gte: monthStart,
-                    lt: nextMonth,
-                  },
-                },
-                {
-                  played_at: null,
-                  scheduled_for: {
-                    gte: monthStart,
-                    lt: nextMonth,
-                  },
-                },
-              ],
+              scheduled_for: {
+                gte: monthStart,
+                lt: nextMonth,
+              },
             },
             {
               status: { in: ["scheduled", "accepted"] },
@@ -501,8 +489,8 @@ export async function GET(
           challenged_position_at_challenge: true,
         },
         orderBy: [
-          { played_at: "desc" },
           { scheduled_for: "desc" },
+          { played_at: "desc" },
           { id: "desc" },
         ],
         take: challengesTake,
@@ -558,22 +546,20 @@ export async function GET(
   >()
 
   for (const row of challenges) {
-    const status = resolveChallengeStatus({
-      status: row.status,
-      winner: row.winner,
-      played_at: row.played_at,
-      challenger_games: row.challenger_games,
-      challenged_games: row.challenged_games,
-      challenger_walkover: row.challenger_walkover,
-      challenged_walkover: row.challenged_walkover,
-    })
-    const winner = resolveChallengeWinner({
-      winner: row.winner,
-      challenger_games: row.challenger_games,
-      challenged_games: row.challenged_games,
-      challenger_walkover: row.challenger_walkover,
-      challenged_walkover: row.challenged_walkover,
-    })
+    // Para o resumo visual da lista, so consideramos resultado (vitoria/derrota)
+    // quando o desafio esta efetivamente concluido no banco.
+    // Isso evita mostrar resultado por dados legados (winner placar em desafio nao concluido).
+    const isCompleted = row.status === "completed"
+    const status = isCompleted ? "completed" : row.status
+    const winner = isCompleted
+      ? resolveChallengeWinner({
+          winner: row.winner,
+          challenger_games: row.challenger_games,
+          challenged_games: row.challenged_games,
+          challenger_walkover: row.challenger_walkover,
+          challenged_walkover: row.challenged_walkover,
+        })
+      : null
 
     const challengerId = row.challenger_id
     const challengedId = row.challenged_id
