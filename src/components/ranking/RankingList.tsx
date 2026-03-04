@@ -146,11 +146,7 @@ const formatCategoryCardName = (name?: string | null, slug?: string) => {
 }
 
 const getCountdownTickMs = (remainingMs: number) => {
-  if (remainingMs > 6 * 60 * 60 * 1000) return 5 * 60_000
-  if (remainingMs > 60 * 60 * 1000) return 2 * 60_000
-  if (remainingMs > 10 * 60 * 1000) return 60_000
-  if (remainingMs > 2 * 60 * 1000) return 30_000
-  if (remainingMs > 60 * 1000) return 10_000
+  if (remainingMs > 0) return 1_000
   return 1_000
 }
 
@@ -274,6 +270,8 @@ type ActivePlayerCardView = {
   name: string
   positionLabel: string
   statusBadges: PlayerStatusBadge[]
+  showChallengeButton: boolean
+  challengeDisabled: boolean
   canChallenge: boolean
   showCountdown: boolean
   showAdminEdit: boolean
@@ -422,12 +420,12 @@ const RankingPlayerCard = memo(
               ) : null}
             </div>
           </div>
-          {row.canChallenge || row.showAdminEdit ? (
+          {row.showChallengeButton || row.showAdminEdit ? (
             <div className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 sm:w-auto sm:flex-row sm:items-center">
-              {row.canChallenge ? (
+              {row.showChallengeButton ? (
                 <Button
                   className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
-                  disabled={isActionLoading}
+                  disabled={row.challengeDisabled || isActionLoading}
                   onClick={() => onChallenge(row.player.userId)}
                   aria-label="Desafiar"
                 >
@@ -1306,25 +1304,26 @@ export default function RankingList() {
         player.position >= (playersData?.accessThreshold ?? 0)
       const rangeAllowed = viewerIsAccess ? accessAllowed : withinRange
       const targetHasChallenge = Boolean(player.summary)
-      const canChallenge =
+      const showChallengeButton =
         showChallenge &&
+        !viewerIsSuspended &&
+        !targetBlueBlocked &&
+        rangeAllowed &&
+        !player.isSuspended &&
+        !isSelf
+      const canChallenge =
+        showChallengeButton &&
         clientCanChallenge &&
         typeAllowed &&
-        !targetBlueBlocked &&
-        rangeAllowed &&
         !viewerHasChallenge &&
-        !targetHasChallenge &&
-        !player.isSuspended &&
-        !isSelf
+        !targetHasChallenge
+      const challengeDisabled = showChallengeButton && !canChallenge
       const showCountdown =
         !viewerIsSuspended &&
-        showChallenge &&
-        !targetBlueBlocked &&
-        rangeAllowed &&
+        showChallengeButton &&
         !viewerHasChallenge &&
         !targetHasChallenge &&
-        !player.isSuspended &&
-        !isSelf
+        !clientCanChallenge
       const baseRowTone =
         index % 2 === 0
           ? "bg-sky-50/80 dark:bg-slate-900/60"
@@ -1341,6 +1340,8 @@ export default function RankingList() {
         name,
         positionLabel,
         statusBadges,
+        showChallengeButton,
+        challengeDisabled,
         canChallenge,
         showCountdown,
         showAdminEdit: canManage && !editing,
