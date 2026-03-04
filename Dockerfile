@@ -54,16 +54,22 @@ ENV SMTP_FROM=${SMTP_FROM}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN set -eux; \
-    DB_URL="${DATABASE_URL:-${DIRECT_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public}}"; \
-    export DATABASE_URL="${DB_URL}"; \
-    export DIRECT_URL="${DIRECT_URL:-${DB_URL}}"; \
+RUN set -e; \
+    DB_URL="${DATABASE_URL:-}"; \
+    if [ -z "$DB_URL" ]; then DB_URL="${DIRECT_URL:-}"; fi; \
+    if [ -z "$DB_URL" ]; then DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public"; fi; \
+    export DATABASE_URL="$DB_URL"; \
+    if [ -z "${DIRECT_URL:-}" ]; then export DIRECT_URL="$DB_URL"; else export DIRECT_URL="${DIRECT_URL}"; fi; \
     npm run prisma:generate
-RUN set -eux; \
-    DB_URL="${DATABASE_URL:-${DIRECT_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public}}"; \
-    export DATABASE_URL="${DB_URL}"; \
-    export DIRECT_URL="${DIRECT_URL:-${DB_URL}}"; \
-    npm run build
+RUN set -e; \
+    DB_URL="${DATABASE_URL:-}"; \
+    if [ -z "$DB_URL" ]; then DB_URL="${DIRECT_URL:-}"; fi; \
+    if [ -z "$DB_URL" ]; then DB_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public"; fi; \
+    export DATABASE_URL="$DB_URL"; \
+    if [ -z "${DIRECT_URL:-}" ]; then export DIRECT_URL="$DB_URL"; else export DIRECT_URL="${DIRECT_URL}"; fi; \
+    export NEXT_PRIVATE_BUILD_WORKER=1; \
+    export CI=1; \
+    npx next build --webpack --experimental-build-mode=compile
 
 FROM node:20-alpine AS runner
 WORKDIR /app
