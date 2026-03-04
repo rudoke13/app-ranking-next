@@ -55,28 +55,14 @@ ENV SMTP_FROM=${SMTP_FROM}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN set -eux; \
-    if [ -z "${DATABASE_URL:-}" ] && [ -z "${DIRECT_URL:-}" ]; then \
-      echo "DATABASE_URL/DIRECT_URL ausentes no build"; \
-      exit 1; \
-    fi; \
-    if [ -z "${DATABASE_URL:-}" ]; then \
-      export DATABASE_URL="${DIRECT_URL}"; \
-    fi; \
-    if [ -z "${DIRECT_URL:-}" ]; then \
-      export DIRECT_URL="${DATABASE_URL}"; \
-    fi; \
+    DB_URL="${DATABASE_URL:-${DIRECT_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public}}"; \
+    export DATABASE_URL="${DB_URL}"; \
+    export DIRECT_URL="${DIRECT_URL:-${DB_URL}}"; \
     npm run prisma:generate
 RUN set -eux; \
-    if [ -z "${DATABASE_URL:-}" ] && [ -z "${DIRECT_URL:-}" ]; then \
-      echo "DATABASE_URL/DIRECT_URL ausentes no build"; \
-      exit 1; \
-    fi; \
-    if [ -z "${DATABASE_URL:-}" ]; then \
-      export DATABASE_URL="${DIRECT_URL}"; \
-    fi; \
-    if [ -z "${DIRECT_URL:-}" ]; then \
-      export DIRECT_URL="${DATABASE_URL}"; \
-    fi; \
+    DB_URL="${DATABASE_URL:-${DIRECT_URL:-postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public}}"; \
+    export DATABASE_URL="${DB_URL}"; \
+    export DIRECT_URL="${DIRECT_URL:-${DB_URL}}"; \
     npm run build
 
 FROM node:20-alpine AS runner
