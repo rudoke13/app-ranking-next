@@ -232,20 +232,13 @@ export async function DELETE(
 
   const challenge = await db.challenges.findUnique({
     where: { id: challengeId },
-    select: { id: true, status: true },
+    select: { id: true },
   })
 
   if (!challenge) {
     return NextResponse.json(
       { ok: false, message: "Desafio nao encontrado." },
       { status: 404 }
-    )
-  }
-
-  if (challenge.status !== "cancelled") {
-    return NextResponse.json(
-      { ok: false, message: "Somente desafios cancelados podem ser removidos." },
-      { status: 422 }
     )
   }
 

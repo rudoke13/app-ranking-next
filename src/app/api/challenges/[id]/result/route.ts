@@ -184,6 +184,20 @@ export async function POST(
         created_by: userId,
       },
     })
+
+    // Beneficio de desafio de acesso vale apenas ate o primeiro jogo concluido.
+    // Assim que o jogador participa de uma partida (como desafiante ou desafiado),
+    // removemos o flag de acesso automaticamente.
+    await tx.ranking_memberships.updateMany({
+      where: {
+        ranking_id: challenge.ranking_id,
+        user_id: { in: [challenge.challenger_id, challenge.challenged_id] },
+        is_access_challenge: true,
+      },
+      data: {
+        is_access_challenge: false,
+      },
+    })
   })
 
   return NextResponse.json({ ok: true, data: { status: "completed" } })

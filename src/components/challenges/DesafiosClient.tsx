@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
-import { CircleX, Clock, Filter, Swords, Trophy } from "lucide-react"
+import { CircleX, Clock, Filter, Swords, Trophy, X } from "lucide-react"
 
 import ChallengeCard, {
   type ChallengeItem,
@@ -210,6 +210,7 @@ export default function DesafiosClient() {
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
   const [createPlayersLoading, setCreatePlayersLoading] = useState(false)
   const [monthOptions, setMonthOptions] = useState<MonthOption[]>([])
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const initializedRef = useRef(false)
   const challengesRef = useRef<ChallengeItem[]>([])
   const deferredChallenges = useDeferredValue(challenges)
@@ -504,6 +505,10 @@ export default function DesafiosClient() {
   const handleChallengeActionComplete = useCallback(() => {
     clearChallengesCaches()
     void loadChallenges(undefined, { bypassCache: true })
+  }, [loadChallenges])
+
+  const applyFilters = useCallback(() => {
+    void loadChallenges()
   }, [loadChallenges])
 
   const challengeCards = useMemo(
@@ -1011,12 +1016,12 @@ export default function DesafiosClient() {
         </Card>
       ) : null}
 
-      <Card>
+      <Card className="hidden sm:block">
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-2">
-            <Label htmlFor="ranking-select">Ranking</Label>
+            <Label htmlFor="desktop-ranking-select">Ranking</Label>
             <Select value={rankingFilter} onValueChange={setRankingFilter}>
-              <SelectTrigger id="ranking-select" className="w-full">
+              <SelectTrigger id="desktop-ranking-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
@@ -1030,12 +1035,9 @@ export default function DesafiosClient() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="month-select">Mes</Label>
-            <Select
-              value={monthFilter}
-              onValueChange={handleMonthFilterChange}
-            >
-              <SelectTrigger id="month-select" className="w-full">
+            <Label htmlFor="desktop-month-select">Mes</Label>
+            <Select value={monthFilter} onValueChange={handleMonthFilterChange}>
+              <SelectTrigger id="desktop-month-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
@@ -1048,9 +1050,9 @@ export default function DesafiosClient() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="status-select">Status</Label>
+            <Label htmlFor="desktop-status-select">Status</Label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger id="status-select" className="w-full">
+              <SelectTrigger id="desktop-status-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
@@ -1063,9 +1065,9 @@ export default function DesafiosClient() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="order-select">Ordenar por</Label>
+            <Label htmlFor="desktop-order-select">Ordenar por</Label>
             <Select value={sortFilter} onValueChange={setSortFilter}>
-              <SelectTrigger id="order-select" className="w-full">
+              <SelectTrigger id="desktop-order-select" className="w-full">
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
@@ -1078,7 +1080,7 @@ export default function DesafiosClient() {
             </Select>
           </div>
           <div className="flex items-end">
-            <Button className="w-full" onClick={() => loadChallenges()}>
+            <Button className="w-full" onClick={applyFilters}>
               <Filter className="size-4" />
               Filtrar
             </Button>
@@ -1086,12 +1088,131 @@ export default function DesafiosClient() {
         </CardContent>
       </Card>
 
+      <Card className="sm:hidden">
+        <CardContent className="py-4">
+          <Button className="w-full" onClick={() => setMobileFiltersOpen(true)}>
+            <Filter className="size-4" />
+            Filtro
+          </Button>
+        </CardContent>
+      </Card>
+
+      {mobileFiltersOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filtros de desafios"
+        >
+          <Card className="w-full max-w-lg">
+            <CardContent className="max-h-[80vh] space-y-4 overflow-y-auto py-4">
+              <div className="flex items-center justify-between">
+                <p className="text-base font-semibold text-foreground">Filtros</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setMobileFiltersOpen(false)}
+                  aria-label="Fechar filtros"
+                >
+                  <X className="size-5" />
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mobile-ranking-select">Ranking</Label>
+                <Select value={rankingFilter} onValueChange={setRankingFilter}>
+                  <SelectTrigger id="mobile-ranking-select" className="w-full">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {rankingSelectOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mobile-month-select">Mes</Label>
+                <Select value={monthFilter} onValueChange={handleMonthFilterChange}>
+                  <SelectTrigger id="mobile-month-select" className="w-full">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {months.map((month) => (
+                      <SelectItem key={month.value} value={month.value}>
+                        {month.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mobile-status-select">Status</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger id="mobile-status-select" className="w-full">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((status) => (
+                      <SelectItem key={status.value} value={status.value}>
+                        {status.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mobile-order-select">Ordenar por</Label>
+                <Select value={sortFilter} onValueChange={setSortFilter}>
+                  <SelectTrigger id="mobile-order-select" className="w-full">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMobileFiltersOpen(false)}
+                >
+                  Fechar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    applyFilters()
+                    setMobileFiltersOpen(false)
+                  }}
+                >
+                  Filtrar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
       {refreshing ? (
         <p className="text-xs text-muted-foreground">Atualizando desafios...</p>
       ) : null}
 
       <Card>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           {loading ? (
             Array.from({ length: 4 }).map((_, index) => (
               <Skeleton key={`challenge-metric-${index}`} className="h-24 w-full" />
