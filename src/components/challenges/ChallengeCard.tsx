@@ -46,6 +46,14 @@ const getCancelTickMs = (remainingMs: number) => {
   return 500
 }
 
+const compactWoName = (name: string) => {
+  const withoutNickname = name.replace(/"[^"]*"/g, "").trim()
+  const tokens = withoutNickname.split(/\s+/).filter(Boolean)
+  const compact = tokens.slice(0, 2).join(" ")
+  const base = compact || withoutNickname || name
+  return base.length > 22 ? `${base.slice(0, 21)}…` : base
+}
+
 export type ChallengeItem = {
   id: number
   status: ChallengeStatus
@@ -180,10 +188,10 @@ function ChallengeCardComponent({
       return "W.O. duplo"
     }
     if (challenge.challengerWalkover) {
-      return `W.O. ${challenge.challenged.name}`
+      return `W.O. ${compactWoName(challenge.challenged.name)}`
     }
     if (challenge.challengedWalkover) {
-      return `W.O. ${challenge.challenger.name}`
+      return `W.O. ${compactWoName(challenge.challenger.name)}`
     }
     if (
       challenge.challengerGames === null ||
@@ -212,6 +220,46 @@ function ChallengeCardComponent({
       : scoreLabel.startsWith("W.O.") || scoreLabel.includes("RET")
       ? "warning"
       : "success"
+
+  const formatGames = (games: number | null, tiebreak: number | null) => {
+    if (games === null) return "-"
+    if (tiebreak !== null) return `${games} (${tiebreak})`
+    return String(games)
+  }
+
+  const challengerLineScore = (() => {
+    if (challenge.status !== "completed") return "-"
+    if (challenge.challengerWalkover && challenge.challengedWalkover) return "W.O."
+    if (challenge.challengerWalkover) return "W.O."
+    if (challenge.challengedWalkover) return "Vencedor"
+    return formatGames(challenge.challengerGames, challenge.challengerTiebreak)
+  })()
+
+  const challengedLineScore = (() => {
+    if (challenge.status !== "completed") return "-"
+    if (challenge.challengerWalkover && challenge.challengedWalkover) return "W.O."
+    if (challenge.challengerWalkover) return "Vencedor"
+    if (challenge.challengedWalkover) return "W.O."
+    return formatGames(challenge.challengedGames, challenge.challengedTiebreak)
+  })()
+
+  const challengerLineTone: StatPillTone =
+    challenge.status !== "completed"
+      ? "neutral"
+      : challenge.winner === "challenger"
+      ? "success"
+      : challenge.winner === "challenged"
+      ? "danger"
+      : "warning"
+
+  const challengedLineTone: StatPillTone =
+    challenge.status !== "completed"
+      ? "neutral"
+      : challenge.winner === "challenged"
+      ? "success"
+      : challenge.winner === "challenger"
+      ? "danger"
+      : "warning"
 
   const canCancelNow = challenge.canCancel && (isAdmin || cancelWindowOpen)
 
@@ -259,6 +307,14 @@ function ChallengeCardComponent({
   }
 
   const handleDelete = async () => {
+    if (!isAdmin) return
+
+    const confirmed = window.confirm(
+      "Tem certeza que deseja apagar este desafio definitivamente? Essa acao nao pode ser desfeita."
+    )
+
+    if (!confirmed) return
+
     setLoading("delete")
     setError(null)
     const response = await apiDelete(`/api/challenges/${challenge.id}`)
@@ -526,11 +582,11 @@ function ChallengeCardComponent({
   return (
     <Card
       className={cn(
-        "shadow-none [content-visibility:auto] [contain-intrinsic-size:220px]",
+        "shadow-none [content-visibility:auto] [contain-intrinsic-size:180px]",
         className
       )}
     >
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-2.5 p-3.5 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Swords className="size-4 text-primary" />
@@ -542,52 +598,69 @@ function ChallengeCardComponent({
           />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
-          <div className="flex min-w-0 items-center gap-3">
-            <UserAvatar
-              name={challenge.challenger.name}
-              src={challenge.challenger.avatarUrl}
-              size={36}
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">
-                {challenge.challenger.name}
-              </p>
-              <p className="text-xs text-muted-foreground">Desafiante</p>
+        <div className="space-y-2">
+          <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <UserAvatar
+                name={challenge.challenger.name}
+                src={challenge.challenger.avatarUrl}
+                size={32}
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {challenge.challenger.name}
+                </p>
+                <p className="text-xs text-muted-foreground">Desafiante</p>
+              </div>
             </div>
+            <StatPill
+              label={challengerLineScore}
+              tone={challengerLineTone}
+              className="shrink-0 px-2.5 py-1 text-sm font-semibold"
+            />
           </div>
-          <div className="flex w-full min-w-0 flex-col items-center gap-2 rounded-lg border bg-muted/30 px-4 py-2 text-xs text-muted-foreground sm:w-auto">
-            <span className="inline-flex items-center gap-2">
+
+          <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border bg-muted/20 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <UserAvatar
+                name={challenge.challenged.name}
+                src={challenge.challenged.avatarUrl}
+                size={32}
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {challenge.challenged.name}
+                </p>
+                <p className="text-xs text-muted-foreground">Desafiado</p>
+              </div>
+            </div>
+            <StatPill
+              label={challengedLineScore}
+              tone={challengedLineTone}
+              className="shrink-0 px-2.5 py-1 text-sm font-semibold"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-muted/10 px-2.5 py-1.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="size-3" />
               Desafio: {scheduledLabel}
             </span>
             {playedLabel ? (
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="size-3" />
                 Jogo: {playedLabel}
               </span>
             ) : null}
-            <div className="flex w-full min-w-0 items-center gap-2 text-foreground/70">
+            <span className="ml-auto inline-flex w-full min-w-0 items-center justify-between gap-1.5 text-foreground/80 sm:w-auto sm:justify-end">
               <Flag className="size-3" />
+              PLACAR
               <StatPill
                 label={scoreLabel}
                 tone={scoreTone}
-                className="min-w-0 max-w-full px-3 py-1 text-sm font-semibold"
+                className="min-w-0 max-w-[60vw] overflow-hidden px-2.5 py-1 text-sm font-bold sm:max-w-[18rem]"
               />
-            </div>
-          </div>
-          <div className="flex min-w-0 items-center gap-3 sm:justify-end sm:text-right">
-            <UserAvatar
-              name={challenge.challenged.name}
-              src={challenge.challenged.avatarUrl}
-              size={36}
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">
-                {challenge.challenged.name}
-              </p>
-              <p className="text-xs text-muted-foreground">Desafiado</p>
-            </div>
+            </span>
           </div>
         </div>
 
@@ -883,7 +956,7 @@ function ChallengeCardComponent({
                 Editar
               </Button>
             ) : null}
-            {isAdmin && challenge.status === "cancelled" ? (
+            {isAdmin ? (
               <Button
                 size="sm"
                 variant="destructive"
