@@ -444,6 +444,43 @@ export async function GET(
     challengeWindowPromise,
   ])
 
+  const bluePhaseEnd = challengeWindow.blueEnd ?? challengeWindow.openStart
+  const isBluePhaseOpen = now < bluePhaseEnd
+  const blueChallengeStatuses: Array<"scheduled" | "accepted" | "completed"> = [
+    "scheduled",
+    "accepted",
+    "completed",
+  ]
+  const blueCandidateUserIds = memberships
+    .filter((membership) => membership.is_blue_point)
+    .map((membership) => membership.user_id)
+  const blueChallengesInWindow = blueCandidateUserIds.length
+    ? await db.challenges.findMany({
+        where: {
+          ranking_id: rankingId,
+          challenger_id: { in: blueCandidateUserIds },
+          status: { in: blueChallengeStatuses },
+          scheduled_for: {
+            gte: challengeWindow.blueStart,
+            lt: bluePhaseEnd,
+          },
+        },
+        select: { challenger_id: true },
+        distinct: ["challenger_id"],
+      })
+    : []
+  const blueUsersWhoUsedWindow = new Set<number>(
+    blueChallengesInWindow.map((row) => row.challenger_id)
+  )
+  const hasEffectiveBluePoint = (membership: {
+    is_blue_point: boolean | null
+    user_id: number
+  } | null) => {
+    if (!membership?.is_blue_point) return false
+    if (isBluePhaseOpen) return true
+    return blueUsersWhoUsedWindow.has(membership.user_id)
+  }
+
   const summaryTargetUserIdList = memberships
     .filter((membership) => !membership.is_suspended)
     .map((membership) => membership.user_id)
@@ -487,6 +524,17 @@ export async function GET(
         take: challengesTake,
       })
     : []
+
+  const viewerMembership =
+    Number.isFinite(userId)
+      ? memberships.find((membership) => membership.user_id === userId) ?? null
+      : null
+  const viewerHasEffectiveBluePoint = hasEffectiveBluePoint(viewerMembership)
+  let viewerBlueCanChallengeInOpen = false
+
+  if (viewerMembership?.is_blue_point && !isBluePhaseOpen) {
+    viewerBlueCanChallengeInOpen = !blueUsersWhoUsedWindow.has(userId)
+  }
 
   let snapshotPositions: Map<number, number> | null = null
   if (shouldUseSnapshot && snapshotRows.length) {
@@ -632,7 +680,7 @@ export async function GET(
         lastName: user.last_name,
         nickname: user.nickname ?? null,
         avatarUrl: user.avatarUrl ?? null,
-        isBluePoint: Boolean(membership?.is_blue_point),
+        isBluePoint: hasEffectiveBluePoint(membership ?? null),
         isAccessChallenge: Boolean(membership?.is_access_challenge),
         isSuspended: false,
         summary: summaries.get(userId) ?? null,
@@ -652,7 +700,7 @@ export async function GET(
         lastName: user.last_name,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl ?? null,
-        isBluePoint: Boolean(membership.is_blue_point),
+        isBluePoint: hasEffectiveBluePoint(membership),
         isAccessChallenge: Boolean(membership.is_access_challenge),
         isSuspended: Boolean(membership.is_suspended),
         summary: summaries.get(membership.user_id) ?? null,
@@ -720,6 +768,8 @@ export async function GET(
         canChallenge: windowState.canChallenge,
         requiresBlue: windowState.requiresBlue,
         requiresRegular: windowState.requiresRegular,
+        viewerBlueCanChallengeInOpen:
+          viewerHasEffectiveBluePoint && viewerBlueCanChallengeInOpen,
         message: windowState.message,
         unlockAt: windowState.unlockAt?.toISOString() ?? null,
         roundStart: windowState.roundStart.toISOString(),

@@ -18,6 +18,13 @@ import {
 } from "@/lib/domain/ranking-round-processor"
 
 const toMonthStart = (value: string) => new Date(`${value}-01T00:00:00`)
+const toMonthValueFromDate = (value: Date) => {
+  const monthKey = monthKeyFromDate(value)
+  if (Number.isNaN(monthKey.getTime())) return ""
+  const year = monthKey.getUTCFullYear()
+  const month = String(monthKey.getUTCMonth() + 1).padStart(2, "0")
+  return `${year}-${month}`
+}
 
 const monthRange = (monthStart: Date) => {
   const start = new Date(
@@ -315,61 +322,80 @@ const evaluateBluePoints = async (
     select: { challenger_id: true, challenged_id: true },
   })
 
-  const completedHistory = await db.challenges.findMany({
-    where: {
-      ranking_id: rankingId,
-      status: "completed",
-      OR: [
-        {
-          played_at: { lte: end },
-        },
-        {
-          played_at: null,
-          scheduled_for: { lte: end },
-        },
-      ],
-    },
-    select: {
-      id: true,
-      challenger_id: true,
-      challenged_id: true,
-      played_at: true,
-      scheduled_for: true,
-    },
-    orderBy: [{ played_at: "desc" }, { scheduled_for: "desc" }, { id: "desc" }],
-  })
-
   const hasChallenge = new Set<number>()
   monthChallenges.forEach((challenge) => {
     hasChallenge.add(challenge.challenger_id)
     hasChallenge.add(challenge.challenged_id)
   })
 
-  const recentParticipationByUser = new Map<
-    number,
-    Array<"challenger" | "challenged">
-  >()
+  const roundRows = await db.rounds.findMany({
+    where: {
+      reference_month: { lte: monthKeyFromDate(monthStart) },
+      OR: [{ ranking_id: rankingId }, { ranking_id: null }],
+    },
+    select: { reference_month: true },
+    orderBy: { reference_month: "desc" },
+  })
 
-  for (const challenge of completedHistory) {
-    const registerRole = (userId: number, role: "challenger" | "challenged") => {
-      const current = recentParticipationByUser.get(userId) ?? []
-      if (current.length >= threshold) return
-      current.push(role)
-      recentParticipationByUser.set(userId, current)
+  const recentRoundMonthKeys: string[] = []
+  const seenRoundMonthKeys = new Set<string>()
+  for (const row of roundRows) {
+    const key = toMonthValueFromDate(row.reference_month)
+    if (!key) continue
+    if (seenRoundMonthKeys.has(key)) continue
+    seenRoundMonthKeys.add(key)
+    recentRoundMonthKeys.push(key)
+    if (recentRoundMonthKeys.length >= threshold) break
+  }
+
+  const challengedInRecentMonthsByUser = new Map<number, Set<string>>()
+  if (recentRoundMonthKeys.length >= threshold) {
+    const selectedMonthKeys = new Set(recentRoundMonthKeys)
+    const oldestMonthKey = recentRoundMonthKeys[recentRoundMonthKeys.length - 1]
+    const oldestMonthStart = toMonthStart(oldestMonthKey)
+
+    const relevantChallenges = await db.challenges.findMany({
+      where: {
+        ranking_id: rankingId,
+        status: { in: ["completed", "scheduled", "accepted"] },
+        OR: [
+          {
+            played_at: { gte: oldestMonthStart, lt: end },
+          },
+          {
+            played_at: null,
+            scheduled_for: { gte: oldestMonthStart, lt: end },
+          },
+        ],
+      },
+      select: {
+        challenged_id: true,
+        played_at: true,
+        scheduled_for: true,
+      },
+    })
+
+    for (const challenge of relevantChallenges) {
+      const refDate = challenge.played_at ?? challenge.scheduled_for
+      if (!refDate) continue
+      const monthKey = toMonthValueFromDate(refDate)
+      if (!monthKey) continue
+      if (!selectedMonthKeys.has(monthKey)) continue
+      const months = challengedInRecentMonthsByUser.get(challenge.challenged_id) ?? new Set<string>()
+      months.add(monthKey)
+      challengedInRecentMonthsByUser.set(challenge.challenged_id, months)
     }
-
-    registerRole(challenge.challenger_id, "challenger")
-    registerRole(challenge.challenged_id, "challenged")
   }
 
   for (const member of members) {
     const userId = member.user_id
     const position =
       positionByUser.get(userId) ?? member.position ?? positions[userId] ?? 0
-    const recentRoles = recentParticipationByUser.get(userId) ?? []
     const challengedConsecutive =
-      recentRoles.length >= threshold &&
-      recentRoles.every((role) => role === "challenged")
+      recentRoundMonthKeys.length >= threshold &&
+      recentRoundMonthKeys.every((monthKey) =>
+        challengedInRecentMonthsByUser.get(userId)?.has(monthKey)
+      )
 
     let locked = false
     if (

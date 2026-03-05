@@ -638,14 +638,36 @@ export async function POST(request: Request) {
       }
 
       if (challengerMembership.is_blue_point) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message:
-              "Apos a abertura dos desafios livres apenas jogadores regulares podem desafiar.",
+        const bluePhaseStart = window.blueStart
+        const bluePhaseEnd = window.blueEnd ?? window.openStart
+        const blueStatuses: Array<"scheduled" | "accepted" | "completed"> = [
+          "scheduled",
+          "accepted",
+          "completed",
+        ]
+        const challengedDuringBlue = await db.challenges.findFirst({
+          where: {
+            ranking_id: rankingId,
+            challenger_id: challengerId,
+            status: { in: blueStatuses },
+            scheduled_for: {
+              gte: bluePhaseStart,
+              lt: bluePhaseEnd,
+            },
           },
-          { status: 422 }
-        )
+          select: { id: true },
+        })
+
+        if (challengedDuringBlue) {
+          return NextResponse.json(
+            {
+              ok: false,
+              message:
+                "Na janela livre, ponto azul so pode desafiar se NAO tiver desafiado durante a janela de ponto azul.",
+            },
+            { status: 422 }
+          )
+        }
       }
     }
 

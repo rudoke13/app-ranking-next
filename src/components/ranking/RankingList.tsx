@@ -110,6 +110,7 @@ type PlayersResponse = {
     canChallenge: boolean
     requiresBlue: boolean
     requiresRegular: boolean
+    viewerBlueCanChallengeInOpen?: boolean
     message: string
     unlockAt: string | null
     roundStart?: string
@@ -997,6 +998,9 @@ export default function RankingList() {
   }, [playersData])
   const viewerPosition = viewerEntry?.position ?? 0
   const viewerIsBlue = Boolean(viewerEntry?.isBluePoint)
+  const viewerBlueCanChallengeInOpen = Boolean(
+    playersData?.challengeWindow.viewerBlueCanChallengeInOpen
+  )
   const viewerIsAccess = Boolean(viewerEntry?.isAccessChallenge)
   const viewerIsSuspended = Boolean(viewerEntry?.isSuspended)
   const viewerHasChallenge = Boolean(viewerEntry?.summary)
@@ -1623,7 +1627,7 @@ export default function RankingList() {
         : isBluePhase
         ? viewerIsBlue
         : isOpenPhase
-        ? !viewerIsBlue
+        ? !viewerIsBlue || viewerBlueCanChallengeInOpen
         : true
       const targetBlueBlocked = isBluePhase && viewerIsBlue && player.isBluePoint
       const withinRange =
@@ -1695,6 +1699,7 @@ export default function RankingList() {
     viewerHasChallenge,
     viewerIsAccess,
     viewerIsBlue,
+    viewerBlueCanChallengeInOpen,
     viewerIsSuspended,
     viewerPosition,
   ])
