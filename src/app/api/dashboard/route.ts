@@ -191,6 +191,13 @@ export async function GET(request: Request) {
   const monthKey = monthKeyFromDate(monthStart)
   const nextMonth = new Date(monthStart)
   nextMonth.setMonth(nextMonth.getMonth() + 1)
+  const openGlobalRoundPromise = db.rounds.findFirst({
+    where: {
+      status: "open",
+      ranking_id: null,
+      reference_month: monthKey,
+    },
+  })
 
   const baseQueryStartedAt = performance.now()
   const membershipPromise = db.ranking_memberships.findFirst({
@@ -213,12 +220,6 @@ export async function GET(request: Request) {
     select: {
       id: true,
       status: true,
-      winner: true,
-      played_at: true,
-      challenger_games: true,
-      challenged_games: true,
-      challenger_walkover: true,
-      challenged_walkover: true,
       scheduled_for: true,
       users_challenges_challenger_idTousers: {
         select: { first_name: true, last_name: true, nickname: true },
@@ -227,7 +228,7 @@ export async function GET(request: Request) {
     orderBy: {
       scheduled_for: "desc",
     },
-    take: 6,
+    take: 3,
   })
 
   const myChallengesPromise = db.challenges.findMany({
@@ -315,13 +316,6 @@ export async function GET(request: Request) {
         },
       })
     : Promise.resolve(null)
-  const openGlobalRoundPromise = db.rounds.findFirst({
-    where: {
-      status: "open",
-      ranking_id: null,
-      reference_month: monthKey,
-    },
-  })
 
   type DashboardStatsRow = {
     active_players: unknown
@@ -450,25 +444,6 @@ export async function GET(request: Request) {
   )
 
   const receivedChallenges = receivedChallengesRaw
-    .map((challenge) => ({
-      ...challenge,
-      normalized_status: resolveChallengeStatus({
-        status: challenge.status,
-        winner: challenge.winner,
-        played_at: challenge.played_at,
-        challenger_games: challenge.challenger_games,
-        challenged_games: challenge.challenged_games,
-        challenger_walkover: challenge.challenger_walkover,
-        challenged_walkover: challenge.challenged_walkover,
-      }),
-    }))
-    .filter(
-      (challenge) =>
-        challenge.normalized_status === "scheduled" ||
-        challenge.normalized_status === "accepted" ||
-        challenge.normalized_status === "declined"
-    )
-    .slice(0, 3)
 
   const recentResults = recentResultsRaw
 
@@ -523,7 +498,7 @@ export async function GET(request: Request) {
     })),
     received: receivedChallenges.map((challenge) => ({
       id: challenge.id,
-      status: challenge.normalized_status,
+      status: challenge.status,
       scheduledFor: challenge.scheduled_for.toISOString(),
       opponent: formatName(
         challenge.users_challenges_challenger_idTousers.first_name,

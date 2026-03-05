@@ -456,21 +456,14 @@ export async function GET(
     ? await db.challenges.findMany({
         where: {
           ranking_id: rankingId,
+          status: { in: ["completed", "scheduled", "accepted"] },
+          scheduled_for: {
+            gte: monthStart,
+            lt: nextMonth,
+          },
           OR: [
-            {
-              status: "completed",
-              scheduled_for: {
-                gte: monthStart,
-                lt: nextMonth,
-              },
-            },
-            {
-              status: { in: ["scheduled", "accepted"] },
-              scheduled_for: {
-                gte: monthStart,
-                lt: nextMonth,
-              },
-            },
+            { challenger_id: { in: summaryTargetUserIdList } },
+            { challenged_id: { in: summaryTargetUserIdList } },
           ],
         },
         select: {
@@ -485,8 +478,6 @@ export async function GET(
           challenged_walkover: true,
           played_at: true,
           scheduled_for: true,
-          challenger_position_at_challenge: true,
-          challenged_position_at_challenge: true,
         },
         orderBy: [
           { scheduled_for: "desc" },

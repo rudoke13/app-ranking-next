@@ -269,50 +269,41 @@ export async function GET(request: Request) {
       challenged_retired: true,
       challenger_id: true,
       challenged_id: true,
+      rankings: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+      users_challenges_challenger_idTousers: {
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          nickname: true,
+          avatarUrl: true,
+        },
+      },
+      users_challenges_challenged_idTousers: {
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          nickname: true,
+          avatarUrl: true,
+        },
+      },
     },
   })
-
-  const rankingIds = Array.from(new Set(challenges.map((challenge) => challenge.ranking_id)))
-  const userIds = Array.from(
-    new Set(
-      challenges.flatMap((challenge) => [
-        challenge.challenger_id,
-        challenge.challenged_id,
-      ])
-    )
-  )
-
-  const [rankings, users] = await Promise.all([
-    rankingIds.length
-      ? db.rankings.findMany({
-          where: { id: { in: rankingIds } },
-          select: { id: true, name: true, slug: true },
-        })
-      : Promise.resolve([]),
-    userIds.length
-      ? db.users.findMany({
-          where: { id: { in: userIds } },
-          select: {
-            id: true,
-            first_name: true,
-            last_name: true,
-            nickname: true,
-            avatarUrl: true,
-          },
-        })
-      : Promise.resolve([]),
-  ])
-
-  const rankingById = new Map(rankings.map((ranking) => [ranking.id, ranking]))
-  const userById = new Map(users.map((user) => [user.id, user]))
 
   const viewerId = Number(session.userId)
   const nowMs = Date.now()
   const preparedChallenges: Array<{
     challenge: (typeof challenges)[number]
-    ranking: (typeof rankings)[number]
-    challenger: (typeof users)[number]
-    challenged: (typeof users)[number]
+    ranking: NonNullable<(typeof challenges)[number]["rankings"]>
+    challenger: (typeof challenges)[number]["users_challenges_challenger_idTousers"]
+    challenged: (typeof challenges)[number]["users_challenges_challenged_idTousers"]
     normalizedStatus: ReturnType<typeof resolveChallengeStatus>
     resolvedWinner: ReturnType<typeof resolveChallengeWinner>
     sortTime: number
@@ -340,9 +331,9 @@ export async function GET(request: Request) {
       continue
     }
 
-    const ranking = rankingById.get(challenge.ranking_id)
-    const challenger = userById.get(challenge.challenger_id)
-    const challenged = userById.get(challenge.challenged_id)
+    const ranking = challenge.rankings
+    const challenger = challenge.users_challenges_challenger_idTousers
+    const challenged = challenge.users_challenges_challenged_idTousers
 
     if (!ranking || !challenger || !challenged) {
       continue
