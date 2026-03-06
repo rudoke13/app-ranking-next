@@ -26,7 +26,6 @@ const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> = [
   "accepted",
   "completed",
 ]
-
 const scheduledAcceptedStatuses: Array<"scheduled" | "accepted"> = [
   "scheduled",
   "accepted",
@@ -52,34 +51,13 @@ function buildRoundPeriodFilter(
   monthStart: Date,
   monthEnd: Date
 ): Prisma.challengesWhereInput {
+  // O desafio pertence ao periodo do agendamento (scheduled_for),
+  // evitando bloqueio indevido por conclusao tardia (played_at em outro mes).
   return {
-    OR: [
-      {
-        status: "completed",
-        OR: [
-          {
-            played_at: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-          {
-            played_at: null,
-            scheduled_for: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-        ],
-      },
-      {
-        status: { in: scheduledAcceptedStatuses },
-        scheduled_for: {
-          gte: monthStart,
-          lt: monthEnd,
-        },
-      },
-    ],
+    scheduled_for: {
+      gte: monthStart,
+      lt: monthEnd,
+    },
   }
 }
 

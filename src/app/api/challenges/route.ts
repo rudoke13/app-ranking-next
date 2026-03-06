@@ -833,38 +833,15 @@ export async function POST(request: Request) {
   monthEnd.setMonth(monthEnd.getMonth() + 1)
   const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> =
     ["scheduled", "accepted", "completed"]
-  const scheduledAcceptedStatuses: Array<"scheduled" | "accepted"> = [
-    "scheduled",
-    "accepted",
-  ]
+  // Regra de bloqueio por periodo:
+  // o desafio sempre pertence ao mes da rodada em que foi agendado (scheduled_for),
+  // nao ao mes em que foi marcado como concluido (played_at).
+  // Isso evita travar jogador no mes seguinte por resultado lancado atrasado.
   const roundPeriodFilter: Prisma.challengesWhereInput = {
-    OR: [
-      {
-        status: "completed",
-        OR: [
-          {
-            played_at: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-          {
-            played_at: null,
-            scheduled_for: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-        ],
-      },
-      {
-        status: { in: scheduledAcceptedStatuses },
-        scheduled_for: {
-          gte: monthStart,
-          lt: monthEnd,
-        },
-      },
-    ],
+    scheduled_for: {
+      gte: monthStart,
+      lt: monthEnd,
+    },
   }
 
   if (!isAdmin) {
