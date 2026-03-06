@@ -42,6 +42,8 @@ const toDateInputValue = (value?: string | null) => {
   return parsed.toISOString().split("T")[0]
 }
 
+const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/
+
 type Membership = {
   id: number
   rankingId: number
@@ -80,6 +82,39 @@ type UsersPayload = {
     role: string
     allowedRankingIds: number[] | null
   }
+}
+
+type ChallengeLockSummary = {
+  id: number
+  status: "scheduled" | "accepted" | "completed" | "cancelled" | "declined"
+  scheduled_for: string
+  played_at: string | null
+  challenger_id: number
+  challenger_name: string
+  challenged_id: number
+  challenged_name: string
+  is_user_challenger: boolean
+  is_user_challenged: boolean
+}
+
+type ChallengeLockInspectData = {
+  user_id: number
+  ranking_id: number
+  month: string
+  blocked: boolean
+  pending_count: number
+  completed_count: number
+  blockers: ChallengeLockSummary[]
+}
+
+type ChallengeLockActionData = {
+  action: "cancel_pending" | "delete_challenge"
+  user_id: number
+  ranking_id: number
+  month: string
+  affected?: number
+  challenge_ids?: number[]
+  deleted_challenge_id?: number
 }
 
 export default function AdminUsuariosPage() {
@@ -138,6 +173,9 @@ export default function AdminUsuariosPage() {
   const [membershipRankingMap, setMembershipRankingMap] = useState<
     Record<number, string>
   >({})
+  const [adminLockActionKey, setAdminLockActionKey] = useState<string | null>(
+    null
+  )
 
   const loadUsers = async () => {
     setLoading(true)
@@ -519,6 +557,168 @@ export default function AdminUsuariosPage() {
     }
 
     setSaving(false)
+    loadUsers()
+  }
+
+  const getCurrentMonthKey = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, "0")
+    return `${year}-${month}`
+  }
+
+  const promptMonthKey = () => {
+    const suggested = getCurrentMonthKey()
+    const rawValue = window.prompt(
+      "Mes de referencia (YYYY-MM). Ex.: 2026-03",
+      suggested
+    )
+    if (rawValue === null) return null
+    const month = rawValue.trim() || suggested
+    if (!monthPattern.test(month)) {
+      setActionError("Mes invalido. Use o formato YYYY-MM.")
+      return null
+    }
+    return month
+  }
+
+  const inspectChallengeLocks = async (userId: number, membership: Membership) => {
+    const month = promptMonthKey()
+    if (!month) return
+
+    const actionKey = `inspect-${userId}-${membership.id}`
+    setAdminLockActionKey(actionKey)
+    setActionError(null)
+
+    const params = new URLSearchParams({
+      ranking_id: String(membership.rankingId),
+      month,
+    })
+
+    const response = await apiGet<ChallengeLockInspectData>(
+      `/api/admin/users/${userId}/challenge-lock?${params.toString()}`,
+      { fresh: true }
+    )
+
+    setAdminLockActionKey(null)
+
+    if (!response.ok) {
+      setActionError(response.message)
+      return
+    }
+
+    const data = response.data
+    const preview = data.blockers
+      .slice(0, 8)
+      .map((blocker) => {
+        const userPerspective = blocker.is_user_challenger
+          ? "desafiante"
+          : blocker.is_user_challenged
+          ? "desafiado"
+          : "-"
+        return `#${blocker.id} | ${blocker.status} | ${userPerspective} | ${blocker.challenger_name} x ${blocker.challenged_name}`
+      })
+      .join("\n")
+
+    window.alert(
+      [
+        `Ranking: ${membership.rankingName}`,
+        `Mes: ${data.month}`,
+        `Bloqueado: ${data.blocked ? "Sim" : "Nao"}`,
+        `Pendentes: ${data.pending_count}`,
+        `Concluidos: ${data.completed_count}`,
+        `Total de bloqueios: ${data.blockers.length}`,
+        preview ? "" : "",
+        preview ? `Desafios:\n${preview}` : "Nenhum desafio bloqueando.",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+  }
+
+  const unlockPendingChallenges = async (userId: number, membership: Membership) => {
+    const month = promptMonthKey()
+    if (!month) return
+
+    const confirmed = window.confirm(
+      `Destravar desafios pendentes de "${membership.rankingName}" no mes ${month}?`
+    )
+    if (!confirmed) return
+
+    const actionKey = `unlock-${userId}-${membership.id}`
+    setAdminLockActionKey(actionKey)
+    setActionError(null)
+
+    const response = await apiPost<ChallengeLockActionData>(
+      `/api/admin/users/${userId}/challenge-lock`,
+      {
+        action: "cancel_pending",
+        ranking_id: membership.rankingId,
+        month,
+      }
+    )
+
+    setAdminLockActionKey(null)
+
+    if (!response.ok) {
+      setActionError(response.message)
+      return
+    }
+
+    const affected = response.data.affected ?? 0
+    const ids = response.data.challenge_ids ?? []
+    window.alert(
+      affected > 0
+        ? `Destrave concluido.\nDesafios cancelados: ${affected}\nIDs: ${ids.join(", ")}`
+        : "Nenhum desafio pendente encontrado para destravar."
+    )
+    loadUsers()
+  }
+
+  const deleteBlockingChallenge = async (userId: number, membership: Membership) => {
+    const month = promptMonthKey()
+    if (!month) return
+
+    const challengeRaw = window.prompt(
+      "Informe o ID do desafio para EXCLUIR:",
+      ""
+    )
+    if (challengeRaw === null) return
+    const challengeId = Number(challengeRaw.trim())
+    if (!Number.isFinite(challengeId) || challengeId <= 0) {
+      setActionError("ID do desafio invalido.")
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Excluir definitivamente o desafio #${challengeId} de "${membership.rankingName}" no mes ${month}?`
+    )
+    if (!confirmed) return
+
+    const actionKey = `delete-${userId}-${membership.id}`
+    setAdminLockActionKey(actionKey)
+    setActionError(null)
+
+    const response = await apiPost<ChallengeLockActionData>(
+      `/api/admin/users/${userId}/challenge-lock`,
+      {
+        action: "delete_challenge",
+        ranking_id: membership.rankingId,
+        month,
+        challenge_id: challengeId,
+      }
+    )
+
+    setAdminLockActionKey(null)
+
+    if (!response.ok) {
+      setActionError(response.message)
+      return
+    }
+
+    window.alert(
+      `Desafio #${response.data.deleted_challenge_id ?? challengeId} removido com sucesso.`
+    )
     loadUsers()
   }
 
@@ -1435,6 +1635,61 @@ export default function AdminUsuariosPage() {
                                     ? "Reativar"
                                     : "Colocar em licenca"}
                                 </Button>
+                                {viewerRole === "admin" ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        inspectChallengeLocks(user.id, membership)
+                                      }
+                                      disabled={
+                                        saving ||
+                                        adminLockActionKey ===
+                                          `inspect-${user.id}-${membership.id}`
+                                      }
+                                    >
+                                      {adminLockActionKey ===
+                                      `inspect-${user.id}-${membership.id}`
+                                        ? "Verificando..."
+                                        : "Verificar bloqueio"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        unlockPendingChallenges(user.id, membership)
+                                      }
+                                      disabled={
+                                        saving ||
+                                        adminLockActionKey ===
+                                          `unlock-${user.id}-${membership.id}`
+                                      }
+                                    >
+                                      {adminLockActionKey ===
+                                      `unlock-${user.id}-${membership.id}`
+                                        ? "Destravando..."
+                                        : "Destravar pendentes"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() =>
+                                        deleteBlockingChallenge(user.id, membership)
+                                      }
+                                      disabled={
+                                        saving ||
+                                        adminLockActionKey ===
+                                          `delete-${user.id}-${membership.id}`
+                                      }
+                                    >
+                                      {adminLockActionKey ===
+                                      `delete-${user.id}-${membership.id}`
+                                        ? "Excluindo..."
+                                        : "Excluir desafio (ID)"}
+                                    </Button>
+                                  </>
+                                ) : null}
                               </div>
                             </div>
                           </div>
