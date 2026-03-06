@@ -40,6 +40,10 @@ import { apiGet, apiPatch, apiPost, type ApiResult } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 import {
+  RANKING_VISIBILITY_UPDATED_EVENT,
+  readRankingVisibilityRefreshMarker,
+} from "@/lib/preferences/ranking-visibility-client"
+import {
   nowInAppTimeZone,
   toDateTimeInputInAppTz,
 } from "@/lib/timezone-client"
@@ -288,6 +292,12 @@ type RankingsCacheEntry = {
 let rankingsCache: RankingsCacheEntry | null = null
 const playersCacheStore = new Map<string, PlayersCacheEntry>()
 const playersInFlightStore = new Map<string, Promise<ApiResult<PlayersResponse>>>()
+
+const clearRankingClientCaches = () => {
+  rankingsCache = null
+  playersCacheStore.clear()
+  playersInFlightStore.clear()
+}
 
 const writePlayersClientCache = (cacheKey: string, data: PlayersResponse) => {
   if (playersCacheStore.size >= MAX_PLAYERS_CLIENT_CACHE_ENTRIES) {
@@ -692,7 +702,10 @@ export default function RankingList() {
   })
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [visibilityRefreshToken, setVisibilityRefreshToken] = useState(0)
   const playersDataRef = useRef<PlayersResponse | null>(null)
+  const countdownRefreshInFlightRef = useRef(false)
+  const lastVisibilityMarkerRef = useRef<string | null>(null)
   const canManage = Boolean(playersData?.canManage)
   const canManageAll = Boolean(playersData?.canManageAll)
 
@@ -728,6 +741,36 @@ export default function RankingList() {
   }, [playersData])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    lastVisibilityMarkerRef.current = readRankingVisibilityRefreshMarker()
+
+    const handleVisibilityUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ marker?: string }>).detail
+      const marker =
+        typeof detail?.marker === "string"
+          ? detail.marker
+          : readRankingVisibilityRefreshMarker()
+      if (!marker || marker === lastVisibilityMarkerRef.current) {
+        return
+      }
+      lastVisibilityMarkerRef.current = marker
+      clearRankingClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
+    window.addEventListener(
+      RANKING_VISIBILITY_UPDATED_EVENT,
+      handleVisibilityUpdated as EventListener
+    )
+    return () => {
+      window.removeEventListener(
+        RANKING_VISIBILITY_UPDATED_EVENT,
+        handleVisibilityUpdated as EventListener
+      )
+    }
+  }, [])
+
+  useEffect(() => {
     if (loadError && isUnauthorizedMessage(loadError)) {
       redirectToLogin()
     }
@@ -761,7 +804,11 @@ export default function RankingList() {
         const firstRankingId = ordered[0] ? String(ordered[0].id) : ""
         primeTopRankingsCache(ordered)
         setRankings(ordered)
-        setSelectedId((current) => current || firstRankingId)
+        setSelectedId((current) =>
+          current && ordered.some((ranking) => String(ranking.id) === current)
+            ? current
+            : firstRankingId
+        )
         setLoadingRankings(false)
         return
       }
@@ -789,7 +836,11 @@ export default function RankingList() {
         cachedAt: Date.now(),
       }
       setRankings(ordered)
-      setSelectedId((current) => current || firstRankingId)
+      setSelectedId((current) =>
+        current && ordered.some((ranking) => String(ranking.id) === current)
+          ? current
+          : firstRankingId
+      )
       setLoadingRankings(false)
     }
 
@@ -798,7 +849,7 @@ export default function RankingList() {
     return () => {
       mounted = false
     }
-  }, [redirectToLogin])
+  }, [redirectToLogin, visibilityRefreshToken])
 
   useEffect(() => {
     let mounted = true
@@ -883,7 +934,7 @@ export default function RankingList() {
     return () => {
       mounted = false
     }
-  }, [selectedId, adminMonth, redirectToLogin])
+  }, [selectedId, adminMonth, redirectToLogin, visibilityRefreshToken])
 
   useEffect(() => {
     if (!playersData) return
@@ -1293,6 +1344,61 @@ export default function RankingList() {
     setPlayersData(response.data)
     setLoadingPlayers(false)
   }, [adminMonth, redirectToLogin, selectedId])
+
+  useEffect(() => {
+    if (!playersData) return
+    if (clientCanChallenge) return
+    if (!shouldTrackCountdown) return
+    const deadline = countdownInfo.deadline
+    if (!deadline) return
+
+    let cancelled = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+
+    const schedule = (delayMs: number) => {
+      if (cancelled) return
+      timeout = setTimeout(run, Math.max(0, delayMs))
+    }
+
+    const run = async () => {
+      if (cancelled) return
+
+      const nowMs = Date.now() + serverOffsetMs
+      const remainingMs = deadline - nowMs
+      if (remainingMs > 60_000) {
+        schedule(Math.min(remainingMs - 60_000, 5_000))
+        return
+      }
+
+      if (!countdownRefreshInFlightRef.current) {
+        countdownRefreshInFlightRef.current = true
+        const monthToRefresh = adminMonth || playersData.month?.value || undefined
+        await refreshPlayers(playersData.ranking.id, monthToRefresh, {
+          bypassCache: true,
+        }).catch(() => undefined)
+        countdownRefreshInFlightRef.current = false
+      }
+
+      if (!clientCanChallenge) {
+        schedule(500)
+      }
+    }
+
+    run()
+
+    return () => {
+      cancelled = true
+      if (timeout) clearTimeout(timeout)
+    }
+  }, [
+    adminMonth,
+    clientCanChallenge,
+    countdownInfo.deadline,
+    playersData,
+    refreshPlayers,
+    serverOffsetMs,
+    shouldTrackCountdown,
+  ])
 
   const openEditModal = useCallback((player: PlayerItem) => {
     if (!canManage) return

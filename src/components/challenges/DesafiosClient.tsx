@@ -29,6 +29,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPost } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
+import {
+  RANKING_VISIBILITY_UPDATED_EVENT,
+  readRankingVisibilityRefreshMarker,
+} from "@/lib/preferences/ranking-visibility-client"
 import { resolveChallengeWinner } from "@/lib/challenges/result"
 import {
   formatMonthYearInAppTz,
@@ -181,6 +185,17 @@ const clearChallengesCaches = () => {
   challengesInFlight.clear()
 }
 
+const clearDesafiosClientCaches = () => {
+  rankingsCache = null
+  rankingsInFlight = null
+  monthsCache = null
+  monthsInFlight = null
+  challengesCache.clear()
+  challengesInFlight.clear()
+  rankingPlayersCache.clear()
+  rankingPlayersInFlight.clear()
+}
+
 export default function DesafiosClient() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [rankings, setRankings] = useState<RankingItem[]>([])
@@ -211,7 +226,9 @@ export default function DesafiosClient() {
   const [createPlayersLoading, setCreatePlayersLoading] = useState(false)
   const [monthOptions, setMonthOptions] = useState<MonthOption[]>([])
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [visibilityRefreshToken, setVisibilityRefreshToken] = useState(0)
   const initializedRef = useRef(false)
+  const lastVisibilityMarkerRef = useRef<string | null>(null)
   const challengesRef = useRef<ChallengeItem[]>([])
   const deferredChallenges = useDeferredValue(challenges)
   const filtersRef = useRef({
@@ -300,6 +317,37 @@ export default function DesafiosClient() {
   useEffect(() => {
     challengesRef.current = challenges
   }, [challenges])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    lastVisibilityMarkerRef.current = readRankingVisibilityRefreshMarker()
+
+    const handleVisibilityUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ marker?: string }>).detail
+      const marker =
+        typeof detail?.marker === "string"
+          ? detail.marker
+          : readRankingVisibilityRefreshMarker()
+      if (!marker || marker === lastVisibilityMarkerRef.current) {
+        return
+      }
+      lastVisibilityMarkerRef.current = marker
+      clearDesafiosClientCaches()
+      setRankingFilter("all")
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
+    window.addEventListener(
+      RANKING_VISIBILITY_UPDATED_EVENT,
+      handleVisibilityUpdated as EventListener
+    )
+    return () => {
+      window.removeEventListener(
+        RANKING_VISIBILITY_UPDATED_EVENT,
+        handleVisibilityUpdated as EventListener
+      )
+    }
+  }, [])
 
   const loadRankings = useCallback(async () => {
     if (rankingsCache && isFresh(rankingsCache.cachedAt)) {
@@ -548,6 +596,24 @@ export default function DesafiosClient() {
     }
     void init()
   }, [loadRankings, loadMonths, loadChallenges])
+
+  useEffect(() => {
+    if (visibilityRefreshToken === 0) return
+    let mounted = true
+
+    const refreshAfterVisibilityChange = async () => {
+      const currentMonth = await loadMonths()
+      if (!mounted) return
+      await loadRankings()
+      if (!mounted) return
+      await loadChallenges(currentMonth, { bypassCache: true })
+    }
+
+    void refreshAfterVisibilityChange()
+    return () => {
+      mounted = false
+    }
+  }, [visibilityRefreshToken, loadChallenges, loadMonths, loadRankings])
 
   useEffect(() => {
     if (!months.length) return

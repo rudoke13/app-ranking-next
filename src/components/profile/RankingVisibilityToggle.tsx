@@ -1,9 +1,12 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Check, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { apiPost, invalidateApiGetCache } from "@/lib/http"
+import { markRankingVisibilityUpdated } from "@/lib/preferences/ranking-visibility-client"
 import { cn } from "@/lib/utils"
 
 type RankingOption = {
@@ -22,6 +25,7 @@ export default function RankingVisibilityToggle({
   initialVisibleRankingIds,
   availableExtraRankings,
 }: RankingVisibilityToggleProps) {
+  const router = useRouter()
   const [showOtherRankings, setShowOtherRankings] = useState(
     initialShowOtherRankings
   )
@@ -46,22 +50,23 @@ export default function RankingVisibilityToggle({
     setMessage(null)
     setIsSaving(true)
 
-    const response = await fetch("/api/users/me", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const response = await apiPost<{
+      showOtherRankings: boolean
+      visibleRankingIds: number[] | null
+    }>("/api/users/me", {
         showOtherRankings: nextShowOtherRankings,
         visibleRankingIds: nextVisibleRankingIds,
-      }),
     })
 
-    const data = await response.json().catch(() => null)
-    if (!response.ok || !data?.ok) {
-      setError(data?.message ?? "Nao foi possivel atualizar a preferencia.")
+    if (!response.ok) {
+      setError(response.message ?? "Nao foi possivel atualizar a preferencia.")
       setIsSaving(false)
       return
     }
 
+    invalidateApiGetCache()
+    markRankingVisibilityUpdated()
+    router.refresh()
     setShowOtherRankings(nextShowOtherRankings)
     setVisibleRankingIds(nextVisibleRankingIds)
     setMessage(
