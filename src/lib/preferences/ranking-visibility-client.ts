@@ -27,3 +27,13 @@ export const readRankingVisibilityRefreshMarker = () => {
   if (typeof window === "undefined") return null
   return window.sessionStorage.getItem(RANKING_VISIBILITY_REFRESH_MARKER_KEY)
 }
+
+export const consumeRankingVisibilityRefreshMarker = () => {
+  if (typeof window === "undefined") return null
+  const marker = window.sessionStorage.getItem(
+    RANKING_VISIBILITY_REFRESH_MARKER_KEY
+  )
+  if (!marker) return null
+  window.sessionStorage.removeItem(RANKING_VISIBILITY_REFRESH_MARKER_KEY)
+  return marker
+}

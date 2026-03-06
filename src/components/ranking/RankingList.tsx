@@ -40,6 +40,7 @@ import { apiGet, apiPatch, apiPost, type ApiResult } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 import {
+  consumeRankingVisibilityRefreshMarker,
   RANKING_VISIBILITY_UPDATED_EVENT,
   readRankingVisibilityRefreshMarker,
 } from "@/lib/preferences/ranking-visibility-client"
@@ -741,7 +742,13 @@ export default function RankingList() {
 
   useEffect(() => {
     if (typeof window === "undefined") return
-    lastVisibilityMarkerRef.current = readRankingVisibilityRefreshMarker()
+    const pendingMarker = consumeRankingVisibilityRefreshMarker()
+    lastVisibilityMarkerRef.current =
+      pendingMarker ?? readRankingVisibilityRefreshMarker()
+    if (pendingMarker) {
+      clearRankingClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
 
     const handleVisibilityUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ marker?: string }>).detail

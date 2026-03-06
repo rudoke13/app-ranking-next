@@ -147,11 +147,11 @@ export async function POST(request: Request) {
     },
   })
 
-  if (hasVisibilityPreference) {
+  if (parsed.data.showOtherRankings !== undefined) {
     response.cookies.set({
       name: SHOW_OTHER_RANKINGS_COOKIE,
       value: serializeShowOtherRankingsValue(
-        Boolean(parsed.data.showOtherRankings)
+        parsed.data.showOtherRankings
       ),
       path: "/",
       sameSite: "lax",
