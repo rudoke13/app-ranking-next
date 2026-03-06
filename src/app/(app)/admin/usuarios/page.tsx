@@ -424,23 +424,79 @@ export default function AdminUsuariosPage() {
       return
     }
 
-    const payload: Record<string, unknown> = {
-      first_name: draft.firstName,
-      last_name: draft.lastName,
-      nickname: draft.nickname || null,
-      email: draft.email,
-      birth_date: draft.birthDate.trim() || null,
-      phone: draft.phone.trim() || null,
+    const currentUser = users.find((entry) => entry.id === editingId)
+    if (!currentUser) {
+      setActionError("Usuario nao encontrado para atualizacao.")
+      setSaving(false)
+      return
     }
 
+    const payload: Record<string, unknown> = {}
+    const normalize = (value: string) => value.trim()
+    const normalizeNullable = (value: string) => {
+      const trimmed = value.trim()
+      return trimmed.length > 0 ? trimmed : null
+    }
+    const equalNumberSets = (left: number[], right: number[]) => {
+      if (left.length !== right.length) return false
+      return left.every((value, index) => value === right[index])
+    }
+
+    const nextFirstName = normalize(draft.firstName)
+    const nextLastName = normalize(draft.lastName)
+    const nextNickname = normalizeNullable(draft.nickname)
+    const nextEmail = normalize(draft.email).toLowerCase()
+    const nextBirthDate = normalizeNullable(draft.birthDate)
+    const nextPhone = normalizeNullable(draft.phone)
+
+    if (nextFirstName !== currentUser.firstName) payload.first_name = nextFirstName
+    if (nextLastName !== currentUser.lastName) payload.last_name = nextLastName
+    if ((currentUser.nickname ?? null) !== nextNickname) {
+      payload.nickname = nextNickname
+    }
+    if (currentUser.email.toLowerCase() !== nextEmail) payload.email = nextEmail
+    const currentBirthDate = currentUser.birthDate
+      ? toDateInputValue(currentUser.birthDate)
+      : null
+    if (currentBirthDate !== nextBirthDate) {
+      payload.birth_date = nextBirthDate
+    }
+    if ((currentUser.phone ?? null) !== nextPhone) payload.phone = nextPhone
+
     if (viewerRole === "admin") {
-      payload.role = draft.role
+      if (roleValue(currentUser.role) !== draft.role) {
+        payload.role = draft.role
+      }
       if (draft.role === "collaborator") {
-        payload.collaborator_ranking_ids = draft.collaboratorRankingIds.map(
-          (id) => Number(id)
-        )
+        const nextCollaboratorRankingIds = Array.from(
+          new Set(
+            draft.collaboratorRankingIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id))
+          )
+        ).sort((a, b) => a - b)
+        const currentCollaboratorRankingIds = currentUser.collaboratorRankings
+          .map((entry) => entry.id)
+          .sort((a, b) => a - b)
+        if (
+          !equalNumberSets(nextCollaboratorRankingIds, currentCollaboratorRankingIds)
+        ) {
+          payload.collaborator_ranking_ids = nextCollaboratorRankingIds
+        }
       } else if (isPlayerOrMember) {
-        payload.player_ranking_ids = draft.rankingIds.map((id) => Number(id))
+        const nextPlayerRankingIds = Array.from(
+          new Set(
+            draft.rankingIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id))
+          )
+        ).sort((a, b) => a - b)
+        const currentPlayerRankingIds = currentUser.memberships
+          .map((membership) => membership.rankingId)
+          .sort((a, b) => a - b)
+        if (!equalNumberSets(nextPlayerRankingIds, currentPlayerRankingIds)) {
+          payload.player_ranking_ids = nextPlayerRankingIds
+        }
       }
     }
 
@@ -457,6 +513,12 @@ export default function AdminUsuariosPage() {
 
     if (draftStatusInitial && draft.status !== draftStatusInitial) {
       payload.active = draft.status === "active"
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setActionError("Nenhuma alteracao para salvar.")
+      setSaving(false)
+      return
     }
 
     const response = await apiPatch(`/api/admin/users/${editingId}`, payload)

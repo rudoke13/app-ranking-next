@@ -332,7 +332,39 @@ export async function PATCH(
     )
   }
 
+  const hasSimpleUserUpdateOnly =
+    Object.keys(updates).length > 0 &&
+    uniquePlayerRankingIds === null &&
+    !uniqueCollaboratorRankings &&
+    activeInput === undefined &&
+    !hasMembershipIntent &&
+    Object.keys(membershipUpdates).length === 0 &&
+    moveToRankingId === undefined &&
+    !shouldClearCollaboratorAccess
+
   try {
+    if (hasSimpleUserUpdateOnly) {
+      const updatedUser = await db.users.update({
+        where: { id: userId },
+        data: updates,
+        include: {
+          ranking_memberships: {
+            select: { id: true, ranking_id: true },
+          },
+        },
+      })
+
+      return NextResponse.json({
+        ok: true,
+        data: {
+          id: updatedUser.id,
+          role: updatedUser.role,
+          avatarUrl: updatedUser.avatarUrl ?? null,
+          membership: null,
+        },
+      })
+    }
+
     const result = await db.$transaction(async (tx) => {
       let updatedUser = existing
       if (Object.keys(updates).length > 0) {
