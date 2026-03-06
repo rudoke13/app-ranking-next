@@ -6,8 +6,8 @@ type PrefetchOptions = {
 }
 
 const IS_BROWSER = typeof window !== "undefined"
-const DEFAULT_PREFETCH_CACHE_TTL_MS = 30_000
-const DEFAULT_PREFETCH_MIN_INTERVAL_MS = 20_000
+const DEFAULT_PREFETCH_CACHE_TTL_MS = 0
+const DEFAULT_PREFETCH_MIN_INTERVAL_MS = 5_000
 
 type PrefetchGlobal = typeof globalThis & {
   __apiPrefetchAt?: Map<string, number>

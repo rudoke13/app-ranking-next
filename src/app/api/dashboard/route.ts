@@ -39,15 +39,15 @@ type DashboardInFlightResult = {
   statsQueryMs: number
 }
 
-const DASHBOARD_CACHE_TTL_MS = 30_000
+const DASHBOARD_CACHE_TTL_MS = 0
 const MAX_DASHBOARD_CACHE_ENTRIES = 300
 const dashboardCache = new Map<string, DashboardCacheEntry>()
 const dashboardInFlight = new Map<string, Promise<DashboardInFlightResult>>()
-const PRIVATE_SHORT_CACHE_CONTROL = "private, max-age=8, stale-while-revalidate=24"
 const NO_STORE_CACHE_CONTROL =
   "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
 
 const readDashboardCache = (cacheKey: string) => {
+  if (DASHBOARD_CACHE_TTL_MS <= 0) return null
   const cached = dashboardCache.get(cacheKey)
   if (!cached) return null
   if (Date.now() - cached.cachedAt > DASHBOARD_CACHE_TTL_MS) {
@@ -58,6 +58,7 @@ const readDashboardCache = (cacheKey: string) => {
 }
 
 const writeDashboardCache = (cacheKey: string, data: unknown) => {
+  if (DASHBOARD_CACHE_TTL_MS <= 0) return
   if (dashboardCache.size >= MAX_DASHBOARD_CACHE_ENTRIES) {
     const oldestKey = dashboardCache.keys().next().value
     if (oldestKey) {
@@ -76,14 +77,10 @@ export async function GET(request: Request) {
     entries.map(([name, duration]) => `${name};dur=${duration.toFixed(1)}`).join(", ")
   const applyResponseMeta = (
     response: NextResponse,
-    entries: Array<[string, number]>,
-    options?: { noStore?: boolean }
+    entries: Array<[string, number]>
   ) => {
     response.headers.set("Server-Timing", buildTimingHeader(entries))
-    response.headers.set(
-      "Cache-Control",
-      options?.noStore ? NO_STORE_CACHE_CONTROL : PRIVATE_SHORT_CACHE_CONTROL
-    )
+    response.headers.set("Cache-Control", NO_STORE_CACHE_CONTROL)
     response.headers.set("Vary", "Cookie")
   }
 
@@ -95,8 +92,7 @@ export async function GET(request: Request) {
     )
     applyResponseMeta(
       response,
-      [["total", performance.now() - startedAt]],
-      { noStore: true }
+      [["total", performance.now() - startedAt]]
     )
     return response
   }
@@ -114,8 +110,7 @@ export async function GET(request: Request) {
       [
         ["session", sessionMs],
         ["total", performance.now() - startedAt],
-      ],
-      { noStore: true }
+      ]
     )
     return response
   }
@@ -170,8 +165,7 @@ export async function GET(request: Request) {
         [
           ["session", sessionMs],
           ["total", performance.now() - startedAt],
-        ],
-        { noStore: true }
+        ]
       )
       return response
     }
@@ -617,8 +611,7 @@ export async function GET(request: Request) {
       [
         ["session", sessionMs],
         ["total", performance.now() - startedAt],
-      ],
-      { noStore: true }
+      ]
     )
     return response
   } finally {

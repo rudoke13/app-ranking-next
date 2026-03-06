@@ -23,18 +23,10 @@ const NO_STORE_HEADERS = {
   Expires: "0",
 } as const
 
-const PRIVATE_SHORT_CACHE_HEADERS = {
-  "Cache-Control": "private, max-age=6, stale-while-revalidate=18",
-  Vary: "Cookie",
-} as const
-
 const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers:
-      init?.status && init.status >= 400
-        ? NO_STORE_HEADERS
-        : PRIVATE_SHORT_CACHE_HEADERS,
+    headers: NO_STORE_HEADERS,
   })
 
 const toMonthStartUtc = (value: string) => {

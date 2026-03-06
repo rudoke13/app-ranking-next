@@ -22,18 +22,11 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const
-const PRIVATE_SHORT_CACHE_HEADERS = {
-  "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
-  Vary: "Cookie",
-} as const
 
 const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers:
-      init?.status && init.status >= 400
-        ? NO_STORE_HEADERS
-        : PRIVATE_SHORT_CACHE_HEADERS,
+    headers: NO_STORE_HEADERS,
   })
 
 const monthValueFromDateOnly = (value: Date) => {
@@ -65,11 +58,12 @@ type MonthsCacheEntry = {
   data: MonthsPayload
 }
 
-const MONTHS_CACHE_TTL_MS = 30_000
+const MONTHS_CACHE_TTL_MS = 0
 let monthsCache: MonthsCacheEntry | null = null
 let monthsInFlight: Promise<MonthsPayload> | null = null
 
 const readMonthsCache = () => {
+  if (MONTHS_CACHE_TTL_MS <= 0) return null
   if (!monthsCache) return null
   if (Date.now() - monthsCache.cachedAt > MONTHS_CACHE_TTL_MS) {
     monthsCache = null
@@ -168,9 +162,11 @@ export async function GET(request: Request) {
     }
   })
 
-  monthsCache = {
-    cachedAt: Date.now(),
-    data: payload,
+  if (MONTHS_CACHE_TTL_MS > 0) {
+    monthsCache = {
+      cachedAt: Date.now(),
+      data: payload,
+    }
   }
 
   return jsonResponse({ ok: true, data: payload })

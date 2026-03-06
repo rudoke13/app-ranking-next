@@ -37,7 +37,7 @@ if (!httpCacheGlobal.__apiGetInFlight) {
 
 const DEFAULT_API_GET_CACHE_TTL_MS = Math.max(
   0,
-  Number(process.env.NEXT_PUBLIC_API_GET_CACHE_TTL_MS ?? "25000") || 0
+  Number(process.env.NEXT_PUBLIC_API_GET_CACHE_TTL_MS ?? "0") || 0
 )
 const MAX_API_GET_CACHE_ENTRIES = 200
 const IS_BROWSER = typeof window !== "undefined"
@@ -135,7 +135,7 @@ async function apiRequest<T>(
       const cacheMode: RequestCache =
         cacheModeOverride ??
         requestOptions.cache ??
-        (isGet ? (fresh ? "no-store" : "default") : "no-store")
+        "no-store"
 
       const response = await fetch(url, {
         ...requestOptions,

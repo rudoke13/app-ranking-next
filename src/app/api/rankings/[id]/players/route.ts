@@ -23,18 +23,11 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const
-const PRIVATE_SHORT_CACHE_HEADERS = {
-  "Cache-Control": "private, max-age=6, stale-while-revalidate=18",
-  Vary: "Cookie",
-} as const
 
 const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers:
-      init?.status && init.status >= 400
-        ? NO_STORE_HEADERS
-        : PRIVATE_SHORT_CACHE_HEADERS,
+    headers: NO_STORE_HEADERS,
   })
 
 const monthSchema = z
@@ -50,8 +43,8 @@ const monthValueUtc = (value: Date) => {
   return `${year}-${month}`
 }
 
-const PLAYED_MONTHS_CACHE_TTL_MS = 12_000
-const PLAYERS_RESPONSE_CACHE_TTL_MS = 10_000
+const PLAYED_MONTHS_CACHE_TTL_MS = 0
+const PLAYERS_RESPONSE_CACHE_TTL_MS = 0
 const MAX_PLAYERS_RESPONSE_CACHE_ENTRIES = 300
 const MAX_PLAYED_MONTHS_CACHE_ENTRIES = 200
 
@@ -78,6 +71,7 @@ const playersResponseInFlight = new Map<
 >()
 
 const readPlayersResponseCache = (cacheKey: string) => {
+  if (PLAYERS_RESPONSE_CACHE_TTL_MS <= 0) return null
   const cached = playersResponseCache.get(cacheKey)
   if (!cached) return null
   if (Date.now() - cached.cachedAt > PLAYERS_RESPONSE_CACHE_TTL_MS) {
@@ -91,6 +85,7 @@ const writePlayersResponseCache = (
   cacheKey: string,
   payload: PlayersResponsePayload
 ) => {
+  if (PLAYERS_RESPONSE_CACHE_TTL_MS <= 0) return
   if (playersResponseCache.size >= MAX_PLAYERS_RESPONSE_CACHE_ENTRIES) {
     const oldestKey = playersResponseCache.keys().next().value
     if (oldestKey) {
@@ -103,14 +98,8 @@ const writePlayersResponseCache = (
   })
 }
 
-const getPlayedMonths = async (rankingId: number) => {
-  const cached = playedMonthsCache.get(rankingId)
-  const now = Date.now()
-  if (cached && now - cached.cachedAt <= PLAYED_MONTHS_CACHE_TTL_MS) {
-    return cached.rows
-  }
-
-  const rows = await db.$queryRaw<PlayedMonthRow[]>`
+const queryPlayedMonths = (rankingId: number) =>
+  db.$queryRaw<PlayedMonthRow[]>`
       SELECT month_start
       FROM (
         SELECT date_trunc('month', scheduled_for)::date AS month_start
@@ -143,6 +132,18 @@ const getPlayedMonths = async (rankingId: number) => {
       ORDER BY month_start DESC
       LIMIT 24
     `
+
+const getPlayedMonths = async (rankingId: number) => {
+  if (PLAYED_MONTHS_CACHE_TTL_MS <= 0) {
+    return queryPlayedMonths(rankingId)
+  }
+  const cached = playedMonthsCache.get(rankingId)
+  const now = Date.now()
+  if (cached && now - cached.cachedAt <= PLAYED_MONTHS_CACHE_TTL_MS) {
+    return cached.rows
+  }
+
+  const rows = await queryPlayedMonths(rankingId)
 
   playedMonthsCache.set(rankingId, {
     rows,

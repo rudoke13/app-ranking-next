@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import type { Prisma } from "@prisma/client"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
@@ -56,11 +57,7 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const
-const PRIVATE_SHORT_CACHE_HEADERS = {
-  "Cache-Control": "private, max-age=6, stale-while-revalidate=18",
-  Vary: "Cookie",
-} as const
-const CHALLENGES_RESPONSE_CACHE_TTL_MS = 8_000
+const CHALLENGES_RESPONSE_CACHE_TTL_MS = 0
 const MAX_CHALLENGES_RESPONSE_CACHE_ENTRIES = 300
 
 type ChallengesResponsePayload = {
@@ -83,13 +80,11 @@ const challengesResponseInFlight = new Map<
 const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers:
-      init?.status && init.status >= 400
-        ? NO_STORE_HEADERS
-        : PRIVATE_SHORT_CACHE_HEADERS,
+    headers: NO_STORE_HEADERS,
   })
 
 const readChallengesResponseCache = (cacheKey: string) => {
+  if (CHALLENGES_RESPONSE_CACHE_TTL_MS <= 0) return null
   const cached = challengesResponseCache.get(cacheKey)
   if (!cached) return null
   if (Date.now() - cached.cachedAt > CHALLENGES_RESPONSE_CACHE_TTL_MS) {
@@ -103,6 +98,7 @@ const writeChallengesResponseCache = (
   cacheKey: string,
   payload: ChallengesResponsePayload
 ) => {
+  if (CHALLENGES_RESPONSE_CACHE_TTL_MS <= 0) return
   if (challengesResponseCache.size >= MAX_CHALLENGES_RESPONSE_CACHE_ENTRIES) {
     const oldestKey = challengesResponseCache.keys().next().value
     if (oldestKey) {
@@ -835,18 +831,48 @@ export async function POST(request: Request) {
   const monthStart = monthStartFrom(scheduledFor)
   const monthEnd = new Date(monthStart)
   monthEnd.setMonth(monthEnd.getMonth() + 1)
+  const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> =
+    ["scheduled", "accepted", "completed"]
+  const scheduledAcceptedStatuses: Array<"scheduled" | "accepted"> = [
+    "scheduled",
+    "accepted",
+  ]
+  const roundPeriodFilter: Prisma.challengesWhereInput = {
+    OR: [
+      {
+        status: "completed",
+        OR: [
+          {
+            played_at: {
+              gte: monthStart,
+              lt: monthEnd,
+            },
+          },
+          {
+            played_at: null,
+            scheduled_for: {
+              gte: monthStart,
+              lt: monthEnd,
+            },
+          },
+        ],
+      },
+      {
+        status: { in: scheduledAcceptedStatuses },
+        scheduled_for: {
+          gte: monthStart,
+          lt: monthEnd,
+        },
+      },
+    ],
+  }
 
   if (!isAdmin) {
-    const windowStatuses: Array<"scheduled" | "accepted" | "completed"> = [
-      "scheduled",
-      "accepted",
-      "completed",
-    ]
     const [existingByPlayer, pairChallenge] = await Promise.all([
       db.challenges.findFirst({
         where: {
           ranking_id: rankingId,
-          status: { in: windowStatuses },
+          status: { in: challengeWindowStatuses },
           AND: [
             {
               OR: [
@@ -856,35 +882,7 @@ export async function POST(request: Request) {
                 { challenged_id: challengedId },
               ],
             },
-            {
-              OR: [
-                {
-                  status: "completed",
-                  OR: [
-                    {
-                      played_at: {
-                        gte: monthStart,
-                        lt: monthEnd,
-                      },
-                    },
-                    {
-                      played_at: null,
-                      scheduled_for: {
-                        gte: monthStart,
-                        lt: monthEnd,
-                      },
-                    },
-                  ],
-                },
-                {
-                  status: { in: ["scheduled", "accepted"] },
-                  scheduled_for: {
-                    gte: monthStart,
-                    lt: monthEnd,
-                  },
-                },
-              ],
-            },
+            roundPeriodFilter,
           ],
         },
         select: { id: true },
@@ -892,36 +890,10 @@ export async function POST(request: Request) {
       db.challenges.findFirst({
         where: {
           ranking_id: rankingId,
-          status: { in: windowStatuses },
+          status: { in: challengeWindowStatuses },
           challenger_id: challengerId,
           challenged_id: challengedId,
-          OR: [
-            {
-              status: "completed",
-              OR: [
-                {
-                  played_at: {
-                    gte: monthStart,
-                    lt: monthEnd,
-                  },
-                },
-                {
-                  played_at: null,
-                  scheduled_for: {
-                    gte: monthStart,
-                    lt: monthEnd,
-                  },
-                },
-              ],
-            },
-            {
-              status: { in: ["scheduled", "accepted"] },
-              scheduled_for: {
-                gte: monthStart,
-                lt: monthEnd,
-              },
-            },
-          ],
+          ...roundPeriodFilter,
         },
         select: { id: true },
       }),
@@ -952,6 +924,89 @@ export async function POST(request: Request) {
   await ensureBaselineSnapshot(rankingId, monthStart)
 
   const created = await db.$transaction(async (tx) => {
+    if (!isAdmin) {
+      // Serialize attempts against the same challenged player in this ranking
+      // so the first committed click wins under concurrent requests.
+      const challengedLockNamespace = -Math.abs(rankingId)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengedLockNamespace}, ${challengedId})`
+
+      const lockUserIds =
+        challengerId === challengedId
+          ? [challengerId]
+          : [Math.min(challengerId, challengedId), Math.max(challengerId, challengedId)]
+
+      for (const lockUserId of lockUserIds) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${rankingId}, ${lockUserId})`
+      }
+
+      const [targetAlreadyChallenged, existingByPlayer, pairChallenge] =
+        await Promise.all([
+          tx.challenges.findFirst({
+            where: {
+              ranking_id: rankingId,
+              challenged_id: challengedId,
+              status: { in: challengeWindowStatuses },
+              ...roundPeriodFilter,
+            },
+            select: { id: true },
+          }),
+          tx.challenges.findFirst({
+            where: {
+              ranking_id: rankingId,
+              status: { in: challengeWindowStatuses },
+              AND: [
+                {
+                  OR: [
+                    { challenger_id: challengerId },
+                    { challenged_id: challengerId },
+                    { challenger_id: challengedId },
+                    { challenged_id: challengedId },
+                  ],
+                },
+                roundPeriodFilter,
+              ],
+            },
+            select: { id: true },
+          }),
+          tx.challenges.findFirst({
+            where: {
+              ranking_id: rankingId,
+              status: { in: challengeWindowStatuses },
+              challenger_id: challengerId,
+              challenged_id: challengedId,
+              ...roundPeriodFilter,
+            },
+            select: { id: true },
+          }),
+        ])
+
+      if (targetAlreadyChallenged) {
+        return {
+          ok: false as const,
+          status: 422,
+          message:
+            "Este jogador ja foi desafiado nesta rodada. O primeiro desafio confirmado prevalece.",
+        }
+      }
+
+      if (existingByPlayer) {
+        return {
+          ok: false as const,
+          status: 422,
+          message: "Jogadores ja registraram desafio neste periodo.",
+        }
+      }
+
+      if (pairChallenge) {
+        return {
+          ok: false as const,
+          status: 422,
+          message:
+            "Este confronto ja esta registrado nesta rodada. Aguarde a proxima rodada.",
+        }
+      }
+    }
+
     const challenge = await tx.challenges.create({
       data: {
         ranking_id: rankingId,
@@ -982,13 +1037,20 @@ export async function POST(request: Request) {
       },
     })
 
-    return challenge
+    return { ok: true as const, challenge }
   })
+
+  if (!created.ok) {
+    return NextResponse.json(
+      { ok: false, message: created.message },
+      { status: created.status }
+    )
+  }
 
   challengesResponseCache.clear()
 
   return NextResponse.json(
-    { ok: true, data: { id: created.id } },
+    { ok: true, data: { id: created.challenge.id } },
     { status: 201 }
   )
 }

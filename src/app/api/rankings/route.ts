@@ -12,18 +12,11 @@ const NO_STORE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0",
 } as const
-const PRIVATE_SHORT_CACHE_HEADERS = {
-  "Cache-Control": "private, max-age=8, stale-while-revalidate=24",
-  Vary: "Cookie",
-} as const
 
 const jsonResponse = (body: unknown, init?: { status?: number }) =>
   NextResponse.json(body, {
     status: init?.status,
-    headers:
-      init?.status && init.status >= 400
-        ? NO_STORE_HEADERS
-        : PRIVATE_SHORT_CACHE_HEADERS,
+    headers: NO_STORE_HEADERS,
   })
 
 type RankingPayloadItem = {
@@ -40,12 +33,13 @@ type RankingsCacheEntry = {
   data: RankingPayloadItem[]
 }
 
-const RANKINGS_CACHE_TTL_MS = 20_000
+const RANKINGS_CACHE_TTL_MS = 0
 const MAX_RANKINGS_CACHE_ENTRIES = 300
 const rankingsCache = new Map<string, RankingsCacheEntry>()
 const rankingsInFlight = new Map<string, Promise<RankingPayloadItem[]>>()
 
 const readCache = (cacheKey: string) => {
+  if (RANKINGS_CACHE_TTL_MS <= 0) return null
   const cached = rankingsCache.get(cacheKey)
   if (!cached) return null
   if (Date.now() - cached.cachedAt > RANKINGS_CACHE_TTL_MS) {
@@ -56,6 +50,7 @@ const readCache = (cacheKey: string) => {
 }
 
 const writeCache = (cacheKey: string, data: RankingPayloadItem[]) => {
+  if (RANKINGS_CACHE_TTL_MS <= 0) return
   if (rankingsCache.size >= MAX_RANKINGS_CACHE_ENTRIES) {
     const oldestKey = rankingsCache.keys().next().value
     if (oldestKey) {
