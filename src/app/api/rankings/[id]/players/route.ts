@@ -5,7 +5,6 @@ import { getSessionFromCookies } from "@/lib/auth/session"
 import {
   formatMonthYearPt,
   monthKeyFromValue,
-  monthStartLocalFromValue,
 } from "@/lib/date"
 import {
   resolveChallengeWindows,
@@ -367,7 +366,7 @@ export async function GET(
     requestedMonthValue = openMonthValue
   }
 
-  const monthStart = monthStartLocalFromValue(requestedMonthValue)
+  const monthStart = monthKeyFromValue(requestedMonthValue)
   if (Number.isNaN(monthStart.getTime())) {
     return jsonResponse(
       { ok: false, message: "Mes invalido." },
@@ -382,7 +381,7 @@ export async function GET(
     )
   }
   const nextMonth = new Date(monthStart)
-  nextMonth.setMonth(nextMonth.getMonth() + 1)
+  nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1)
   const shouldUseSnapshot = !openMonthValue || requestedMonthValue !== openMonthValue
   const challengeWindowPromise = resolveChallengeWindows(rankingId, now, {
     openRankingRound,

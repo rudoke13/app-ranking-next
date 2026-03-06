@@ -825,12 +825,12 @@ export async function POST(request: Request) {
     }
   }
 
-  const scheduledFor =
-    parseAppDateTime(normalizeAppDateTimeInput(parsed.data.scheduled_for)) ??
-    now
+  const scheduledFor = isAdmin
+    ? parseAppDateTime(normalizeAppDateTimeInput(parsed.data.scheduled_for)) ?? now
+    : now
   const monthStart = monthStartFrom(scheduledFor)
   const monthEnd = new Date(monthStart)
-  monthEnd.setMonth(monthEnd.getMonth() + 1)
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
   const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> =
     ["scheduled", "accepted", "completed"]
   // Regra de bloqueio por periodo:
@@ -845,7 +845,7 @@ export async function POST(request: Request) {
   }
 
   if (!isAdmin) {
-    const [existingByPlayer, pairChallenge] = await Promise.all([
+    const [challengerAlreadyInPeriod, targetAlreadyChallenged, pairChallenge] = await Promise.all([
       db.challenges.findFirst({
         where: {
           ranking_id: rankingId,
@@ -855,12 +855,19 @@ export async function POST(request: Request) {
               OR: [
                 { challenger_id: challengerId },
                 { challenged_id: challengerId },
-                { challenger_id: challengedId },
-                { challenged_id: challengedId },
               ],
             },
             roundPeriodFilter,
           ],
+        },
+        select: { id: true },
+      }),
+      db.challenges.findFirst({
+        where: {
+          ranking_id: rankingId,
+          status: { in: challengeWindowStatuses },
+          challenged_id: challengedId,
+          ...roundPeriodFilter,
         },
         select: { id: true },
       }),
@@ -876,7 +883,18 @@ export async function POST(request: Request) {
       }),
     ])
 
-    if (existingByPlayer) {
+    if (targetAlreadyChallenged) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            "Este jogador ja foi desafiado nesta rodada. O primeiro desafio confirmado prevalece.",
+        },
+        { status: 422 }
+      )
+    }
+
+    if (challengerAlreadyInPeriod) {
       return NextResponse.json(
         {
           ok: false,
@@ -916,7 +934,7 @@ export async function POST(request: Request) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${rankingId}, ${lockUserId})`
       }
 
-      const [targetAlreadyChallenged, existingByPlayer, pairChallenge] =
+      const [targetAlreadyChallenged, challengerAlreadyInPeriod, pairChallenge] =
         await Promise.all([
           tx.challenges.findFirst({
             where: {
@@ -936,8 +954,6 @@ export async function POST(request: Request) {
                   OR: [
                     { challenger_id: challengerId },
                     { challenged_id: challengerId },
-                    { challenger_id: challengedId },
-                    { challenged_id: challengedId },
                   ],
                 },
                 roundPeriodFilter,
@@ -966,7 +982,7 @@ export async function POST(request: Request) {
         }
       }
 
-      if (existingByPlayer) {
+      if (challengerAlreadyInPeriod) {
         return {
           ok: false as const,
           status: 422,
