@@ -693,7 +693,6 @@ export default function RankingList() {
   const [phaseNow, setPhaseNow] = useState(() => Date.now())
   const [serverOffsetMs, setServerOffsetMs] = useState(0)
   const [countdownText, setCountdownText] = useState("")
-  const [releaseFlashAt, setReleaseFlashAt] = useState<number | null>(null)
   const [editingPlayer, setEditingPlayer] = useState<PlayerItem | null>(null)
   const [editForm, setEditForm] = useState({
     isBluePoint: false,
@@ -1125,29 +1124,6 @@ export default function RankingList() {
     shouldTrackCountdown,
   ])
 
-  useEffect(() => {
-    const deadline = countdownInfo.deadline
-    if (!deadline || !shouldTrackCountdown) return
-
-    const nowMs = Date.now() + serverOffsetMs
-    if (nowMs >= deadline) {
-      setReleaseFlashAt((prev) => prev ?? nowMs)
-      return
-    }
-
-    const timeout = setTimeout(() => {
-      setReleaseFlashAt((prev) => prev ?? Date.now() + serverOffsetMs)
-    }, Math.max(250, deadline - nowMs))
-
-    return () => clearTimeout(timeout)
-  }, [countdownInfo.deadline, serverOffsetMs, shouldTrackCountdown])
-
-  useEffect(() => {
-    if (!releaseFlashAt) return
-    const timeout = setTimeout(() => setReleaseFlashAt(null), 2500)
-    return () => clearTimeout(timeout)
-  }, [releaseFlashAt])
-
   const parseRequiredTime = (value?: string | null) => {
     if (!value) return null
     const parsed = new Date(value).getTime()
@@ -1223,8 +1199,6 @@ export default function RankingList() {
 
   const effectivePhase = clientPhase ?? playersData?.challengeWindow.phase ?? "open"
   const clientCanChallenge = effectivePhase === "blue" || effectivePhase === "open"
-  const showReleaseFlash = Boolean(releaseFlashAt) && clientCanChallenge
-
   const canSaveOrder =
     editing && !!playersData && draftPlayers.length === playersData.players.length
   const monthOptions = useMemo(() => {
@@ -1914,11 +1888,6 @@ export default function RankingList() {
               <p className="text-sm text-destructive" role="alert">
                 {actionError}
               </p>
-            ) : null}
-            {showReleaseFlash ? (
-              <div className="rounded-lg border border-success/40 bg-success/10 px-4 py-2 text-sm text-success-foreground">
-                Desafios liberados agora. Corra para desafiar!
-              </div>
             ) : null}
 
             {canManage ? (
