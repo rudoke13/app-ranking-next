@@ -1,11 +1,19 @@
 import SectionTitle from "@/components/app/SectionTitle"
 import AvatarUploader from "@/components/profile/AvatarUploader"
 import ProfileForm from "@/components/profile/ProfileForm"
+import RankingVisibilityToggle from "@/components/profile/RankingVisibilityToggle"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
+import {
+  SHOW_OTHER_RANKINGS_COOKIE,
+  parseShowOtherRankingsValue,
+  VISIBLE_RANKING_IDS_COOKIE,
+  parseVisibleRankingIdsValue,
+} from "@/lib/preferences/ranking-visibility"
+import { cookies } from "next/headers"
 
 const formatDateInput = (value?: Date | null) =>
   value ? value.toISOString().split("T")[0] : ""
@@ -17,9 +25,63 @@ export default async function PerfilPage() {
   const session = await getSessionFromCookies()
   const userId = session?.userId ? Number(session.userId) : null
   const hasValidUserId = typeof userId === "number" && Number.isFinite(userId)
-  const user = hasValidUserId
-    ? await db.users.findUnique({ where: { id: userId } })
-    : null
+  const isRestrictedToMembership =
+    session?.role === "player" || session?.role === "member"
+  const [user, linkedRankings, activeRankings, cookieStore] = await Promise.all([
+    hasValidUserId ? db.users.findUnique({ where: { id: userId } }) : null,
+    hasValidUserId
+      ? db.ranking_memberships.findMany({
+          where: { user_id: userId },
+          select: {
+            rankings: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+          orderBy: { ranking_id: "asc" },
+        })
+      : [],
+    db.rankings.findMany({
+      where: { is_active: true },
+      select: {
+        id: true,
+        name: true,
+        only_for_enrolled_players: true,
+      },
+      orderBy: { name: "asc" },
+    }),
+    cookies(),
+  ])
+
+  const showOtherRankings = parseShowOtherRankingsValue(
+    cookieStore.get(SHOW_OTHER_RANKINGS_COOKIE)?.value
+  )
+  const visibleRankingIds = parseVisibleRankingIdsValue(
+    cookieStore.get(VISIBLE_RANKING_IDS_COOKIE)?.value
+  )
+  const linkedRankingBadges = linkedRankings
+    .map((entry) => {
+      const id = entry.rankings?.id
+      const name = entry.rankings?.name?.trim() ?? ""
+      if (!id || !name) return null
+      return { id, name }
+    })
+    .filter((entry): entry is { id: number; name: string } => Boolean(entry))
+  const linkedRankingSet = new Set(linkedRankingBadges.map((entry) => entry.id))
+  const allowedVisibleRankings = isRestrictedToMembership
+    ? activeRankings.filter(
+        (ranking) =>
+          !ranking.only_for_enrolled_players || linkedRankingSet.has(ranking.id)
+      )
+    : activeRankings
+  const availableExtraRankings = allowedVisibleRankings
+    .filter((ranking) => !linkedRankingSet.has(ranking.id))
+    .map((ranking) => ({
+      id: ranking.id,
+      name: ranking.name,
+    }))
 
   const fullName = user
     ? `${user.first_name} ${user.last_name}`.trim() ||
@@ -76,10 +138,23 @@ export default async function PerfilPage() {
             Rankings vinculados
           </p>
           <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">Feminino</Badge>
-            <Badge variant="secondary">Masculino</Badge>
-            <Badge variant="secondary">Master 45+</Badge>
+            {linkedRankingBadges.length ? (
+              linkedRankingBadges.map((ranking) => (
+                <Badge key={ranking.id} variant="secondary">
+                  {ranking.name}
+                </Badge>
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                Nenhum ranking vinculado.
+              </span>
+            )}
           </div>
+          <RankingVisibilityToggle
+            initialShowOtherRankings={showOtherRankings}
+            initialVisibleRankingIds={visibleRankingIds}
+            availableExtraRankings={availableExtraRankings}
+          />
         </CardContent>
       </Card>
 

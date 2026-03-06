@@ -4,6 +4,12 @@ import bcrypt from "bcryptjs"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
+import {
+  SHOW_OTHER_RANKINGS_COOKIE,
+  serializeShowOtherRankingsValue,
+  VISIBLE_RANKING_IDS_COOKIE,
+  serializeVisibleRankingIdsValue,
+} from "@/lib/preferences/ranking-visibility"
 
 const updateSchema = z.object({
   firstName: z.string().max(100).optional(),
@@ -13,6 +19,8 @@ const updateSchema = z.object({
   phone: z.string().max(30).optional().nullable(),
   birthDate: z.string().optional().nullable(),
   password: z.string().min(6).max(100).optional(),
+  showOtherRankings: z.boolean().optional(),
+  visibleRankingIds: z.array(z.number().int().positive()).max(200).optional(),
 })
 
 const parseDate = (value: string) => {
@@ -50,6 +58,9 @@ export async function POST(request: Request) {
   }
 
   const updates: Record<string, unknown> = {}
+  const hasVisibilityPreference =
+    parsed.data.showOtherRankings !== undefined ||
+    parsed.data.visibleRankingIds !== undefined
 
   if (parsed.data.firstName !== undefined) {
     const value = parsed.data.firstName.trim()
@@ -115,20 +126,52 @@ export async function POST(request: Request) {
     }
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length > 0) {
+    await db.users.update({
+      where: { id: userId },
+      data: updates,
+    })
+  } else if (!hasVisibilityPreference) {
     return NextResponse.json({
       ok: true,
       data: { message: "Nada para atualizar." },
     })
   }
 
-  await db.users.update({
-    where: { id: userId },
-    data: updates,
+  const response = NextResponse.json({
+    ok: true,
+    data: {
+      message: Object.keys(updates).length
+        ? "Perfil atualizado."
+        : "Preferencias atualizadas.",
+    },
   })
 
-  return NextResponse.json({
-    ok: true,
-    data: { message: "Perfil atualizado." },
-  })
+  if (hasVisibilityPreference) {
+    response.cookies.set({
+      name: SHOW_OTHER_RANKINGS_COOKIE,
+      value: serializeShowOtherRankingsValue(
+        Boolean(parsed.data.showOtherRankings)
+      ),
+      path: "/",
+      sameSite: "lax",
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 365,
+    })
+  }
+
+  if (parsed.data.visibleRankingIds !== undefined) {
+    response.cookies.set({
+      name: VISIBLE_RANKING_IDS_COOKIE,
+      value: serializeVisibleRankingIdsValue(parsed.data.visibleRankingIds),
+      path: "/",
+      sameSite: "lax",
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 365,
+    })
+  }
+
+  return response
 }

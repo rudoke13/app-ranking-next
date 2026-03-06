@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
+import {
+  readShowOtherRankingsFromCookieHeader,
+  readVisibleRankingIdsFromCookieHeader,
+} from "@/lib/preferences/ranking-visibility"
 
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
@@ -77,9 +81,26 @@ export async function GET(request: Request) {
   const isAdmin = session.role === "admin"
   const isRestrictedToMembership =
     session.role === "player" || session.role === "member"
+  const cookieHeader = request.headers.get("cookie")
+  const showOtherRankings = readShowOtherRankingsFromCookieHeader(
+    cookieHeader
+  )
+  const visibleRankingIdsPreference = readVisibleRankingIdsFromCookieHeader(
+    cookieHeader
+  )
+  const restrictToLinkedRankings =
+    isRestrictedToMembership && !showOtherRankings
   const shouldLoadMemberships =
     Number.isFinite(userId) && isRestrictedToMembership
-  const cacheKey = `${session.role}:${Number.isFinite(userId) ? userId : "anonymous"}`
+  const cacheKey = `${session.role}:${
+    Number.isFinite(userId) ? userId : "anonymous"
+  }:${
+    restrictToLinkedRankings
+      ? "linked-only"
+      : visibleRankingIdsPreference === null
+      ? "all-visible"
+      : `selected-${visibleRankingIdsPreference.join(",") || "none"}`
+  }`
   const searchParams = new URL(request.url).searchParams
   const freshParam = (searchParams.get("fresh") ?? "").toLowerCase()
   const forceFresh =
@@ -123,11 +144,22 @@ export async function GET(request: Request) {
 
     const membershipIds = userMemberships.map((item) => item.ranking_id)
     const memberSet = new Set(membershipIds)
+    const selectedRankingSet = new Set(visibleRankingIdsPreference ?? [])
+    const allowedRestrictedRankings = rankings.filter(
+      (ranking) =>
+        !ranking.only_for_enrolled_players || memberSet.has(ranking.id)
+    )
     const visibleRankings = isRestrictedToMembership
-      ? rankings.filter(
-          (ranking) =>
-            !ranking.only_for_enrolled_players || memberSet.has(ranking.id)
-        )
+      ? restrictToLinkedRankings
+        ? allowedRestrictedRankings.filter((ranking) =>
+            memberSet.has(ranking.id)
+          )
+        : visibleRankingIdsPreference === null
+        ? allowedRestrictedRankings
+        : allowedRestrictedRankings.filter(
+            (ranking) =>
+              memberSet.has(ranking.id) || selectedRankingSet.has(ranking.id)
+          )
       : rankings
 
     const visibleRankingIds = visibleRankings.map((ranking) => ranking.id)

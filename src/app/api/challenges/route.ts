@@ -11,6 +11,10 @@ import { resolveChallengeWindows } from "@/lib/domain/challenges"
 import { maxPositionsUp, ensureBaselineSnapshot, getAccessThreshold, monthStartFrom } from "@/lib/domain/ranking"
 import { shiftMonthValue } from "@/lib/date"
 import { hasAdminAccess } from "@/lib/domain/permissions"
+import {
+  readShowOtherRankingsFromCookieHeader,
+  readVisibleRankingIdsFromCookieHeader,
+} from "@/lib/preferences/ranking-visibility"
 import { normalizeAppDateTimeInput, parseAppDateTime } from "@/lib/timezone"
 
 export const dynamic = "force-dynamic"
@@ -155,13 +159,36 @@ export async function GET(request: Request) {
   }
 
   const isAdmin = hasAdminAccess(session)
+  const viewerId = Number(session.userId)
+  const isRestrictedToMembership =
+    session.role === "player" || session.role === "member"
+  const cookieHeader = request.headers.get("cookie")
+  const showOtherRankings = readShowOtherRankingsFromCookieHeader(
+    cookieHeader
+  )
+  const visibleRankingIdsPreference = readVisibleRankingIdsFromCookieHeader(
+    cookieHeader
+  )
+  const restrictToLinkedRankings =
+    isRestrictedToMembership && !showOtherRankings
   const rankingFilter = parsed.data.ranking
   const statusFilter = parsed.data.status
   const sortKey = parsed.data.sort ?? "recent"
   const freshParam = (searchParams.get("fresh") ?? "").toLowerCase()
   const forceFresh =
     freshParam === "1" || freshParam === "true" || freshParam === "yes"
-  const responseCacheKey = `${session.role}:${session.userId}:${rankingFilter ?? "all"}:${parsed.data.month ?? "open"}:${statusFilter ?? "all"}:${sortKey}`
+  const visibilityKey = !isRestrictedToMembership
+    ? "unrestricted"
+    : restrictToLinkedRankings
+    ? "linked-only"
+    : visibleRankingIdsPreference === null
+    ? "all-visible"
+    : `selected-${visibleRankingIdsPreference.join(",") || "none"}`
+  const responseCacheKey = `${session.role}:${session.userId}:${
+    rankingFilter ?? "all"
+  }:${parsed.data.month ?? "open"}:${statusFilter ?? "all"}:${sortKey}:${
+    visibilityKey
+  }`
   const inFlightKey = forceFresh ? `${responseCacheKey}:fresh` : responseCacheKey
 
   if (forceFresh) {
@@ -188,6 +215,60 @@ export async function GET(request: Request) {
     ? toMonthStartUtc(shiftMonthValue(monthValue, 1))
     : null
 
+  const linkedRankingIds =
+    isRestrictedToMembership && Number.isFinite(viewerId)
+      ? (
+          await db.ranking_memberships.findMany({
+            where: { user_id: viewerId },
+            select: { ranking_id: true },
+          })
+        ).map((membership) => membership.ranking_id)
+      : []
+  const linkedRankingSet = new Set(linkedRankingIds)
+  let visibleRankingIdsForViewer: number[] | null = null
+
+  if (isRestrictedToMembership) {
+    if (restrictToLinkedRankings) {
+      visibleRankingIdsForViewer = linkedRankingIds
+    } else {
+      const activeRankings = await db.rankings.findMany({
+        where: { is_active: true },
+        select: { id: true, only_for_enrolled_players: true },
+      })
+      const allowedRankingIds = activeRankings
+        .filter(
+          (ranking) =>
+            !ranking.only_for_enrolled_players ||
+            linkedRankingSet.has(ranking.id)
+        )
+        .map((ranking) => ranking.id)
+
+      if (visibleRankingIdsPreference === null) {
+        visibleRankingIdsForViewer = allowedRankingIds
+      } else {
+        const selectedRankingSet = new Set([
+          ...linkedRankingIds,
+          ...visibleRankingIdsPreference,
+        ])
+        visibleRankingIdsForViewer = allowedRankingIds.filter((rankingId) =>
+          selectedRankingSet.has(rankingId)
+        )
+      }
+    }
+  }
+
+  if (
+    isRestrictedToMembership &&
+    (visibleRankingIdsForViewer?.length ?? 0) === 0
+  ) {
+    const responseBody: ChallengesResponsePayload = {
+      ok: true,
+      data: { items: [], isAdmin },
+    }
+    writeChallengesResponseCache(responseCacheKey, responseBody)
+    return responseBody
+  }
+
   let rankingId: number | null = null
   if (rankingFilter) {
     const asNumber = Number(rankingFilter)
@@ -200,6 +281,19 @@ export async function GET(request: Request) {
       })
       rankingId = ranking?.id ?? null
     }
+  }
+
+  if (
+    isRestrictedToMembership &&
+    rankingId &&
+    !(visibleRankingIdsForViewer ?? []).includes(rankingId)
+  ) {
+    const responseBody: ChallengesResponsePayload = {
+      ok: true,
+      data: { items: [], isAdmin },
+    }
+    writeChallengesResponseCache(responseCacheKey, responseBody)
+    return responseBody
   }
 
   const where: Record<string, unknown> = {}
@@ -229,6 +323,8 @@ export async function GET(request: Request) {
 
   if (rankingId) {
     where.ranking_id = rankingId
+  } else if (isRestrictedToMembership) {
+    where.ranking_id = { in: visibleRankingIdsForViewer ?? [] }
   }
 
   if (monthStart && nextMonth) {
@@ -297,7 +393,6 @@ export async function GET(request: Request) {
     },
   })
 
-  const viewerId = Number(session.userId)
   const nowMs = Date.now()
   const preparedChallenges: Array<{
     challenge: (typeof challenges)[number]
