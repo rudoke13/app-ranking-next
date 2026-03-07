@@ -539,6 +539,7 @@ export async function GET(request: Request) {
         name: ranking.name,
         slug: ranking.slug,
       },
+      createdAt: challenge.created_at?.toISOString() ?? scheduledFor.toISOString(),
       scheduledFor: scheduledFor.toISOString(),
       playedAt: challenge.played_at?.toISOString() ?? null,
       challengerGames: challenge.challenger_games ?? null,

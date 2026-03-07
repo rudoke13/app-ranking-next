@@ -25,7 +25,7 @@ const statusLabel = {
   scheduled: "Pendente",
   accepted: "Aceito",
   declined: "Recusado",
-  completed: "Concluido",
+  completed: "Jogo concluido",
   cancelled: "Cancelado",
 } as const
 
@@ -60,6 +60,7 @@ export type ChallengeItem = {
   status: ChallengeStatus
   winner: "challenger" | "challenged" | null
   ranking: { id: number; name: string; slug: string }
+  createdAt: string
   scheduledFor: string
   playedAt: string | null
   challengerGames: number | null
@@ -111,6 +112,9 @@ function ChallengeCardComponent({
   const now = internalNow
 
   const scheduledLabel = formatDateTimeInAppTz(challenge.scheduledFor, {
+    second: "2-digit",
+  })
+  const createdLabel = formatDateTimeInAppTz(challenge.createdAt, {
     second: "2-digit",
   })
   const playedLabel = challenge.playedAt
@@ -649,12 +653,16 @@ function ChallengeCardComponent({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-muted/10 px-2.5 py-1.5 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="size-3" />
-              Desafio: {scheduledLabel}
+              Desafiado em: {createdLabel}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarDays className="size-3" />
+              Jogo marcado: {scheduledLabel}
             </span>
             {playedLabel ? (
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="size-3" />
-                Jogo: {playedLabel}
+                Jogo concluido: {playedLabel}
               </span>
             ) : null}
             <span className="ml-auto inline-flex w-full min-w-0 items-center justify-between gap-1.5 text-foreground/80 sm:w-auto sm:justify-end">
