@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { apiDelete, apiPatch, apiPost } from "@/lib/http"
+import { markChallengesUpdated } from "@/lib/preferences/challenge-refresh-client"
 
 const statusLabel = {
   scheduled: "Pendente",
@@ -288,6 +289,7 @@ function ChallengeCardComponent({
 
     setActionMode(null)
     setLoading(null)
+    markChallengesUpdated()
     onActionComplete?.()
   }
 
@@ -324,6 +326,7 @@ function ChallengeCardComponent({
       return
     }
     setLoading(null)
+    markChallengesUpdated()
     onActionComplete?.()
   }
 
@@ -461,6 +464,7 @@ function ChallengeCardComponent({
 
     setLoading(null)
     setActionMode(null)
+    markChallengesUpdated()
     onActionComplete?.()
   }
 
@@ -576,6 +580,7 @@ function ChallengeCardComponent({
 
     setLoading(null)
     setActionMode(null)
+    markChallengesUpdated()
     onActionComplete?.()
   }
 

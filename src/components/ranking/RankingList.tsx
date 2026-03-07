@@ -45,6 +45,12 @@ import {
   readRankingVisibilityRefreshMarker,
 } from "@/lib/preferences/ranking-visibility-client"
 import {
+  CHALLENGES_UPDATED_EVENT,
+  consumeChallengesRefreshMarker,
+  markChallengesUpdated,
+  readChallengesRefreshMarker,
+} from "@/lib/preferences/challenge-refresh-client"
+import {
   nowInAppTimeZone,
   toDateTimeInputInAppTz,
 } from "@/lib/timezone-client"
@@ -706,6 +712,7 @@ export default function RankingList() {
   const playersDataRef = useRef<PlayersResponse | null>(null)
   const countdownRefreshInFlightRef = useRef(false)
   const lastVisibilityMarkerRef = useRef<string | null>(null)
+  const lastChallengeMarkerRef = useRef<string | null>(null)
   const canManage = Boolean(playersData?.canManage)
   const canManageAll = Boolean(playersData?.canManageAll)
 
@@ -750,6 +757,14 @@ export default function RankingList() {
       setVisibilityRefreshToken((current) => current + 1)
     }
 
+    const pendingChallengeMarker = consumeChallengesRefreshMarker()
+    lastChallengeMarkerRef.current =
+      pendingChallengeMarker ?? readChallengesRefreshMarker()
+    if (pendingChallengeMarker) {
+      clearRankingClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
     const handleVisibilityUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ marker?: string }>).detail
       const marker =
@@ -764,14 +779,36 @@ export default function RankingList() {
       setVisibilityRefreshToken((current) => current + 1)
     }
 
+    const handleChallengesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ marker?: string }>).detail
+      const marker =
+        typeof detail?.marker === "string"
+          ? detail.marker
+          : readChallengesRefreshMarker()
+      if (!marker || marker === lastChallengeMarkerRef.current) {
+        return
+      }
+      lastChallengeMarkerRef.current = marker
+      clearRankingClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
     window.addEventListener(
       RANKING_VISIBILITY_UPDATED_EVENT,
       handleVisibilityUpdated as EventListener
+    )
+    window.addEventListener(
+      CHALLENGES_UPDATED_EVENT,
+      handleChallengesUpdated as EventListener
     )
     return () => {
       window.removeEventListener(
         RANKING_VISIBILITY_UPDATED_EVENT,
         handleVisibilityUpdated as EventListener
+      )
+      window.removeEventListener(
+        CHALLENGES_UPDATED_EVENT,
+        handleChallengesUpdated as EventListener
       )
     }
   }, [])
@@ -1446,10 +1483,12 @@ export default function RankingList() {
 
     if (!response.ok) {
       setActionError(response.message)
+      await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
       setActionLoading(null)
       return
     }
 
+    markChallengesUpdated()
     await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
     setActionLoading(null)
   }, [adminMonth, playersData, refreshPlayers])

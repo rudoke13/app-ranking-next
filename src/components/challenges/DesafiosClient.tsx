@@ -34,6 +34,12 @@ import {
   RANKING_VISIBILITY_UPDATED_EVENT,
   readRankingVisibilityRefreshMarker,
 } from "@/lib/preferences/ranking-visibility-client"
+import {
+  CHALLENGES_UPDATED_EVENT,
+  consumeChallengesRefreshMarker,
+  markChallengesUpdated,
+  readChallengesRefreshMarker,
+} from "@/lib/preferences/challenge-refresh-client"
 import { resolveChallengeWinner } from "@/lib/challenges/result"
 import {
   formatMonthYearInAppTz,
@@ -230,6 +236,7 @@ export default function DesafiosClient() {
   const [visibilityRefreshToken, setVisibilityRefreshToken] = useState(0)
   const initializedRef = useRef(false)
   const lastVisibilityMarkerRef = useRef<string | null>(null)
+  const lastChallengeMarkerRef = useRef<string | null>(null)
   const challengesRef = useRef<ChallengeItem[]>([])
   const deferredChallenges = useDeferredValue(challenges)
   const filtersRef = useRef({
@@ -330,6 +337,14 @@ export default function DesafiosClient() {
       setVisibilityRefreshToken((current) => current + 1)
     }
 
+    const pendingChallengeMarker = consumeChallengesRefreshMarker()
+    lastChallengeMarkerRef.current =
+      pendingChallengeMarker ?? readChallengesRefreshMarker()
+    if (pendingChallengeMarker) {
+      clearDesafiosClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
     const handleVisibilityUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ marker?: string }>).detail
       const marker =
@@ -345,14 +360,36 @@ export default function DesafiosClient() {
       setVisibilityRefreshToken((current) => current + 1)
     }
 
+    const handleChallengesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ marker?: string }>).detail
+      const marker =
+        typeof detail?.marker === "string"
+          ? detail.marker
+          : readChallengesRefreshMarker()
+      if (!marker || marker === lastChallengeMarkerRef.current) {
+        return
+      }
+      lastChallengeMarkerRef.current = marker
+      clearDesafiosClientCaches()
+      setVisibilityRefreshToken((current) => current + 1)
+    }
+
     window.addEventListener(
       RANKING_VISIBILITY_UPDATED_EVENT,
       handleVisibilityUpdated as EventListener
+    )
+    window.addEventListener(
+      CHALLENGES_UPDATED_EVENT,
+      handleChallengesUpdated as EventListener
     )
     return () => {
       window.removeEventListener(
         RANKING_VISIBILITY_UPDATED_EVENT,
         handleVisibilityUpdated as EventListener
+      )
+      window.removeEventListener(
+        CHALLENGES_UPDATED_EVENT,
+        handleChallengesUpdated as EventListener
       )
     }
   }, [])
@@ -560,6 +597,7 @@ export default function DesafiosClient() {
 
   const handleChallengeActionComplete = useCallback(() => {
     clearChallengesCaches()
+    markChallengesUpdated()
     void loadChallenges(undefined, { bypassCache: true })
   }, [loadChallenges])
 
@@ -829,6 +867,7 @@ export default function DesafiosClient() {
     }
 
     const challengeId = response.data.id
+    markChallengesUpdated()
 
     if (resultPayload) {
       const resultResponse = await apiPost(
@@ -846,6 +885,7 @@ export default function DesafiosClient() {
         return
       }
 
+      markChallengesUpdated()
       setCreateSuccess("Desafio criado e resultado registrado.")
     } else {
       setCreateSuccess("Desafio criado com sucesso.")

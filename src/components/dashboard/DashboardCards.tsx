@@ -35,6 +35,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiPatch, apiPost } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
 import {
+  CHALLENGES_UPDATED_EVENT,
+  consumeChallengesRefreshMarker,
+  markChallengesUpdated,
+  readChallengesRefreshMarker,
+} from "@/lib/preferences/challenge-refresh-client"
+import {
   formatDateTimeInAppTz,
   formatMonthYearInAppTz,
   toDateTimeInputInAppTz,
@@ -171,6 +177,11 @@ type DashboardFetchResult = {
 let dashboardCache: DashboardCacheEntry | null = null
 let dashboardInFlight: Promise<DashboardFetchResult> | null = null
 
+const clearDashboardCache = () => {
+  dashboardCache = null
+  dashboardInFlight = null
+}
+
 const formatDate = (value: string | null) => {
   return formatDateTimeInAppTz(value, { second: "2-digit" })
 }
@@ -199,7 +210,9 @@ export default function DashboardCards() {
   const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
   const [resultError, setResultError] = useState<string | null>(null)
   const [resultLoading, setResultLoading] = useState<string | null>(null)
+  const [challengeRefreshToken, setChallengeRefreshToken] = useState(0)
   const mountedRef = useRef(true)
+  const lastChallengeMarkerRef = useRef<string | null>(null)
   const deferredLicensePlayers = useDeferredValue(
     data?.licensePlayers ?? EMPTY_LICENSE_PLAYERS
   )
@@ -297,6 +310,50 @@ export default function DashboardCards() {
     }
   }, [loadDashboard])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const pendingMarker = consumeChallengesRefreshMarker()
+    lastChallengeMarkerRef.current =
+      pendingMarker ?? readChallengesRefreshMarker()
+    if (pendingMarker) {
+      clearDashboardCache()
+      setChallengeRefreshToken((current) => current + 1)
+    }
+
+    const handleChallengesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ marker?: string }>).detail
+      const marker =
+        typeof detail?.marker === "string"
+          ? detail.marker
+          : readChallengesRefreshMarker()
+      if (!marker || marker === lastChallengeMarkerRef.current) {
+        return
+      }
+      lastChallengeMarkerRef.current = marker
+      clearDashboardCache()
+      setChallengeRefreshToken((current) => current + 1)
+    }
+
+    window.addEventListener(
+      CHALLENGES_UPDATED_EVENT,
+      handleChallengesUpdated as EventListener
+    )
+    return () => {
+      window.removeEventListener(
+        CHALLENGES_UPDATED_EVENT,
+        handleChallengesUpdated as EventListener
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    if (challengeRefreshToken === 0) return
+    void loadDashboard({
+      preserveUi: true,
+      fresh: true,
+    })
+  }, [challengeRefreshToken, loadDashboard])
+
   const monthLabel = useMemo(
     () =>
       data?.round
@@ -390,6 +447,7 @@ export default function DashboardCards() {
 
     setResultLoading(null)
     setResultOpenId(null)
+    markChallengesUpdated()
     loadDashboard({ preserveUi: true, fresh: true })
   }
 
@@ -468,6 +526,7 @@ export default function DashboardCards() {
 
       setResultLoading(null)
       setResultOpenId(null)
+      markChallengesUpdated()
       loadDashboard({ preserveUi: true, fresh: true })
       return
     }
@@ -504,6 +563,7 @@ export default function DashboardCards() {
 
     setResultLoading(null)
     setResultOpenId(null)
+    markChallengesUpdated()
     loadDashboard({ preserveUi: true, fresh: true })
   }
 

@@ -120,6 +120,15 @@ const toMonthStartUtc = (value: string) => {
   return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0))
 }
 
+const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> =
+  ["scheduled", "accepted", "completed"]
+
+const challengerAlreadyInPeriodMessage =
+  "Este jogador ja desafiou ou foi desafiado nesta rodada nesta categoria."
+
+const challengedPlayerAlreadyInPeriodMessage =
+  "O jogador desafiado ja desafiou ou foi desafiado nesta rodada nesta categoria."
+
 export async function GET(request: Request) {
   let session: Awaited<ReturnType<typeof getSessionFromCookies>> = null
   try {
@@ -831,8 +840,6 @@ const handleCreateChallenge = async (request: Request) => {
   const monthStart = monthStartFrom(scheduledFor)
   const monthEnd = new Date(monthStart)
   monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1)
-  const challengeWindowStatuses: Array<"scheduled" | "accepted" | "completed"> =
-    ["scheduled", "accepted", "completed"]
   // Regra de bloqueio por periodo:
   // o desafio sempre pertence ao mes da rodada em que foi agendado (scheduled_for),
   // nao ao mes em que foi marcado como concluido (played_at).
@@ -844,9 +851,125 @@ const handleCreateChallenge = async (request: Request) => {
     },
   }
 
-  if (!isAdmin) {
-    const [challengerAlreadyInPeriod, targetAlreadyChallenged, pairChallenge] = await Promise.all([
-      db.challenges.findFirst({
+  const [
+    challengerAlreadyInPeriod,
+    challengedPlayerAlreadyInPeriod,
+    pairChallenge,
+  ] = await Promise.all([
+    db.challenges.findFirst({
+      where: {
+        ranking_id: rankingId,
+        status: { in: challengeWindowStatuses },
+        AND: [
+          {
+            OR: [
+              { challenger_id: challengerId },
+              { challenged_id: challengerId },
+            ],
+          },
+          roundPeriodFilter,
+        ],
+      },
+      select: { id: true },
+    }),
+    db.challenges.findFirst({
+      where: {
+        ranking_id: rankingId,
+        status: { in: challengeWindowStatuses },
+        AND: [
+          {
+            OR: [
+              { challenger_id: challengedId },
+              { challenged_id: challengedId },
+            ],
+          },
+          roundPeriodFilter,
+        ],
+      },
+      select: { id: true },
+    }),
+    db.challenges.findFirst({
+      where: {
+        ranking_id: rankingId,
+        status: { in: challengeWindowStatuses },
+        challenger_id: challengerId,
+        challenged_id: challengedId,
+        ...roundPeriodFilter,
+      },
+      select: { id: true },
+    }),
+  ])
+
+  if (challengedPlayerAlreadyInPeriod) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: challengedPlayerAlreadyInPeriodMessage,
+      },
+      { status: 422 }
+    )
+  }
+
+  if (challengerAlreadyInPeriod) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: challengerAlreadyInPeriodMessage,
+      },
+      { status: 422 }
+    )
+  }
+
+  if (pairChallenge) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          "Este confronto ja esta registrado nesta rodada. Aguarde a proxima rodada.",
+      },
+      { status: 422 }
+    )
+  }
+
+  await ensureBaselineSnapshot(rankingId, monthStart)
+
+  const created = await db.$transaction(async (tx) => {
+    // Serialize attempts against the same challenged player in this ranking
+    // so the first committed click wins under concurrent requests.
+    const challengedLockNamespace = -Math.abs(rankingId)
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengedLockNamespace}, ${challengedId})`
+
+    const lockUserIds =
+      challengerId === challengedId
+        ? [challengerId]
+        : [Math.min(challengerId, challengedId), Math.max(challengerId, challengedId)]
+
+    for (const lockUserId of lockUserIds) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${rankingId}, ${lockUserId})`
+    }
+
+    const [
+      challengedPlayerAlreadyInPeriod,
+      challengerAlreadyInPeriod,
+      pairChallenge,
+    ] = await Promise.all([
+      tx.challenges.findFirst({
+        where: {
+          ranking_id: rankingId,
+          status: { in: challengeWindowStatuses },
+          AND: [
+            {
+              OR: [
+                { challenger_id: challengedId },
+                { challenged_id: challengedId },
+              ],
+            },
+            roundPeriodFilter,
+          ],
+        },
+        select: { id: true },
+      }),
+      tx.challenges.findFirst({
         where: {
           ranking_id: rankingId,
           status: { in: challengeWindowStatuses },
@@ -862,16 +985,7 @@ const handleCreateChallenge = async (request: Request) => {
         },
         select: { id: true },
       }),
-      db.challenges.findFirst({
-        where: {
-          ranking_id: rankingId,
-          status: { in: challengeWindowStatuses },
-          challenged_id: challengedId,
-          ...roundPeriodFilter,
-        },
-        select: { id: true },
-      }),
-      db.challenges.findFirst({
+      tx.challenges.findFirst({
         where: {
           ranking_id: rankingId,
           status: { in: challengeWindowStatuses },
@@ -883,120 +997,28 @@ const handleCreateChallenge = async (request: Request) => {
       }),
     ])
 
-    if (targetAlreadyChallenged) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message:
-            "Este jogador ja foi desafiado nesta rodada. O primeiro desafio confirmado prevalece.",
-        },
-        { status: 422 }
-      )
+    if (challengedPlayerAlreadyInPeriod) {
+      return {
+        ok: false as const,
+        status: 422,
+        message: challengedPlayerAlreadyInPeriodMessage,
+      }
     }
 
     if (challengerAlreadyInPeriod) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "Jogadores ja registraram desafio neste periodo.",
-        },
-        { status: 422 }
-      )
+      return {
+        ok: false as const,
+        status: 422,
+        message: challengerAlreadyInPeriodMessage,
+      }
     }
 
     if (pairChallenge) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message:
-            "Este confronto ja esta registrado nesta rodada. Aguarde a proxima rodada.",
-        },
-        { status: 422 }
-      )
-    }
-  }
-
-  await ensureBaselineSnapshot(rankingId, monthStart)
-
-  const created = await db.$transaction(async (tx) => {
-    if (!isAdmin) {
-      // Serialize attempts against the same challenged player in this ranking
-      // so the first committed click wins under concurrent requests.
-      const challengedLockNamespace = -Math.abs(rankingId)
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengedLockNamespace}, ${challengedId})`
-
-      const lockUserIds =
-        challengerId === challengedId
-          ? [challengerId]
-          : [Math.min(challengerId, challengedId), Math.max(challengerId, challengedId)]
-
-      for (const lockUserId of lockUserIds) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${rankingId}, ${lockUserId})`
-      }
-
-      const [targetAlreadyChallenged, challengerAlreadyInPeriod, pairChallenge] =
-        await Promise.all([
-          tx.challenges.findFirst({
-            where: {
-              ranking_id: rankingId,
-              challenged_id: challengedId,
-              status: { in: challengeWindowStatuses },
-              ...roundPeriodFilter,
-            },
-            select: { id: true },
-          }),
-          tx.challenges.findFirst({
-            where: {
-              ranking_id: rankingId,
-              status: { in: challengeWindowStatuses },
-              AND: [
-                {
-                  OR: [
-                    { challenger_id: challengerId },
-                    { challenged_id: challengerId },
-                  ],
-                },
-                roundPeriodFilter,
-              ],
-            },
-            select: { id: true },
-          }),
-          tx.challenges.findFirst({
-            where: {
-              ranking_id: rankingId,
-              status: { in: challengeWindowStatuses },
-              challenger_id: challengerId,
-              challenged_id: challengedId,
-              ...roundPeriodFilter,
-            },
-            select: { id: true },
-          }),
-        ])
-
-      if (targetAlreadyChallenged) {
-        return {
-          ok: false as const,
-          status: 422,
-          message:
-            "Este jogador ja foi desafiado nesta rodada. O primeiro desafio confirmado prevalece.",
-        }
-      }
-
-      if (challengerAlreadyInPeriod) {
-        return {
-          ok: false as const,
-          status: 422,
-          message: "Jogadores ja registraram desafio neste periodo.",
-        }
-      }
-
-      if (pairChallenge) {
-        return {
-          ok: false as const,
-          status: 422,
-          message:
-            "Este confronto ja esta registrado nesta rodada. Aguarde a proxima rodada.",
-        }
+      return {
+        ok: false as const,
+        status: 422,
+        message:
+          "Este confronto ja esta registrado nesta rodada. Aguarde a proxima rodada.",
       }
     }
 
