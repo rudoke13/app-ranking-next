@@ -39,6 +39,7 @@ import {
 import { apiGet, apiPatch, apiPost, type ApiResult } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
+import { cn } from "@/lib/utils"
 import {
   consumeRankingVisibilityRefreshMarker,
   RANKING_VISIBILITY_UPDATED_EVENT,
@@ -614,9 +615,17 @@ const RankingPlayerCard = memo(
                   />
                 )}
               </div>
-              {row.showCountdown && countdownText ? (
-                <p className="text-[10px] font-semibold text-destructive sm:text-xs">
-                  {countdownText}
+              {row.showChallengeButton ? (
+                <p
+                  className={cn(
+                    "min-h-[14px] text-[10px] font-semibold sm:min-h-[16px] sm:text-xs",
+                    row.showCountdown && countdownText
+                      ? "text-destructive"
+                      : "invisible"
+                  )}
+                  aria-hidden={!(row.showCountdown && countdownText)}
+                >
+                  {row.showCountdown && countdownText ? countdownText : "00:00"}
                 </p>
               ) : null}
             </div>
@@ -710,7 +719,6 @@ export default function RankingList() {
   const [editError, setEditError] = useState<string | null>(null)
   const [visibilityRefreshToken, setVisibilityRefreshToken] = useState(0)
   const playersDataRef = useRef<PlayersResponse | null>(null)
-  const countdownRefreshInFlightRef = useRef(false)
   const lastVisibilityMarkerRef = useRef<string | null>(null)
   const lastChallengeMarkerRef = useRef<string | null>(null)
   const canManage = Boolean(playersData?.canManage)
@@ -1362,61 +1370,6 @@ export default function RankingList() {
     setPlayersData(response.data)
     setLoadingPlayers(false)
   }, [adminMonth, redirectToLogin, selectedId])
-
-  useEffect(() => {
-    if (!playersData) return
-    if (clientCanChallenge) return
-    if (!shouldTrackCountdown) return
-    const deadline = countdownInfo.deadline
-    if (!deadline) return
-
-    let cancelled = false
-    let timeout: ReturnType<typeof setTimeout> | null = null
-
-    const schedule = (delayMs: number) => {
-      if (cancelled) return
-      timeout = setTimeout(run, Math.max(0, delayMs))
-    }
-
-    const run = async () => {
-      if (cancelled) return
-
-      const nowMs = Date.now() + serverOffsetMs
-      const remainingMs = deadline - nowMs
-      if (remainingMs > 60_000) {
-        schedule(Math.min(remainingMs - 60_000, 5_000))
-        return
-      }
-
-      if (!countdownRefreshInFlightRef.current) {
-        countdownRefreshInFlightRef.current = true
-        const monthToRefresh = adminMonth || playersData.month?.value || undefined
-        await refreshPlayers(playersData.ranking.id, monthToRefresh, {
-          bypassCache: true,
-        }).catch(() => undefined)
-        countdownRefreshInFlightRef.current = false
-      }
-
-      if (!clientCanChallenge) {
-        schedule(500)
-      }
-    }
-
-    run()
-
-    return () => {
-      cancelled = true
-      if (timeout) clearTimeout(timeout)
-    }
-  }, [
-    adminMonth,
-    clientCanChallenge,
-    countdownInfo.deadline,
-    playersData,
-    refreshPlayers,
-    serverOffsetMs,
-    shouldTrackCountdown,
-  ])
 
   const openEditModal = useCallback((player: PlayerItem) => {
     if (!canManage) return
