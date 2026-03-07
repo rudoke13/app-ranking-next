@@ -937,7 +937,7 @@ const handleCreateChallenge = async (request: Request) => {
     // Serialize attempts against the same challenged player in this ranking
     // so the first committed click wins under concurrent requests.
     const challengedLockNamespace = -Math.abs(rankingId)
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${challengedLockNamespace}, ${challengedId})`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${challengedLockNamespace} AS integer), CAST(${challengedId} AS integer))`
 
     const lockUserIds =
       challengerId === challengedId
@@ -945,7 +945,7 @@ const handleCreateChallenge = async (request: Request) => {
         : [Math.min(challengerId, challengedId), Math.max(challengerId, challengedId)]
 
     for (const lockUserId of lockUserIds) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${rankingId}, ${lockUserId})`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${rankingId} AS integer), CAST(${lockUserId} AS integer))`
     }
 
     const [
