@@ -607,14 +607,21 @@ export default function DesafiosClient() {
 
   const challengeCards = useMemo(
     () =>
-      deferredChallenges.map((challenge, index) => (
+      [...deferredChallenges]
+        .sort((a, b) => {
+          if (a.isViewerChallenge === b.isViewerChallenge) return 0
+          return a.isViewerChallenge ? -1 : 1
+        })
+        .map((challenge, index) => (
         <ChallengeCard
           key={challenge.id}
           challenge={challenge}
           isAdmin={isAdmin}
           onActionComplete={handleChallengeActionComplete}
           className={
-            index % 2 === 0
+            challenge.isViewerChallenge
+              ? "border-sky-300 bg-sky-100/90 ring-1 ring-sky-200/80 dark:border-sky-400/60 dark:bg-sky-950/35 [content-visibility:auto] [contain-intrinsic-size:144px]"
+              : index % 2 === 0
               ? "bg-sky-50/80 dark:bg-slate-900/60 [content-visibility:auto] [contain-intrinsic-size:144px]"
               : "bg-white dark:bg-slate-800/60 [content-visibility:auto] [contain-intrinsic-size:144px]"
           }

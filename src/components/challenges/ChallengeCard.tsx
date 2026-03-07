@@ -60,6 +60,7 @@ export type ChallengeItem = {
   status: ChallengeStatus
   winner: "challenger" | "challenged" | null
   ranking: { id: number; name: string; slug: string }
+  isViewerChallenge: boolean
   createdAt: string
   scheduledFor: string
   playedAt: string | null
@@ -92,7 +93,9 @@ function ChallengeCardComponent({
   onActionComplete,
   className,
 }: ChallengeCardProps) {
-  const [actionMode, setActionMode] = useState<"result" | "edit" | null>(null)
+  const [actionMode, setActionMode] = useState<
+    "result" | "edit" | "schedule" | null
+  >(null)
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editScheduledFor, setEditScheduledFor] = useState("")
@@ -108,6 +111,7 @@ function ChallengeCardComponent({
   const [resultChallengedGames, setResultChallengedGames] = useState("")
   const [resultChallengerTiebreak, setResultChallengerTiebreak] = useState("")
   const [resultChallengedTiebreak, setResultChallengedTiebreak] = useState("")
+  const [scheduleScheduledFor, setScheduleScheduledFor] = useState("")
   const [internalNow, setInternalNow] = useState(() => Date.now())
   const now = internalNow
 
@@ -267,6 +271,10 @@ function ChallengeCardComponent({
       : "warning"
 
   const canCancelNow = challenge.canCancel && (isAdmin || cancelWindowOpen)
+  const canSchedule =
+    challenge.isViewerChallenge &&
+    !isAdmin &&
+    (challenge.status === "scheduled" || challenge.status === "accepted")
 
   const cancelCountdown = useMemo(() => {
     if (!cancelDeadline || !cancelWindowOpen || isAdmin) return null
@@ -278,7 +286,8 @@ function ChallengeCardComponent({
   }, [cancelDeadline, cancelWindowOpen, isAdmin, now])
 
   const showActions =
-    (canCancelNow || challenge.canResult || isAdmin) && actionMode === null
+    (canCancelNow || canSchedule || challenge.canResult || isAdmin) &&
+    actionMode === null
 
   const runAction = async (endpoint: string, body?: unknown) => {
     setLoading(endpoint)
@@ -309,6 +318,12 @@ function ChallengeCardComponent({
       toDateTimeInputInAppTz(challenge.playedAt ?? challenge.scheduledFor)
     )
     setActionMode("result")
+    setError(null)
+  }
+
+  const openSchedule = () => {
+    setScheduleScheduledFor(toDateTimeInputInAppTz(challenge.scheduledFor))
+    setActionMode("schedule")
     setError(null)
   }
 
@@ -565,7 +580,7 @@ function ChallengeCardComponent({
   }
 
   const handleSchedule = async () => {
-    if (!resultPlayedAt) {
+    if (!scheduleScheduledFor) {
       setError("Informe a data do jogo.")
       return
     }
@@ -573,7 +588,7 @@ function ChallengeCardComponent({
     setLoading("schedule")
     setError(null)
     const response = await apiPatch(`/api/challenges/${challenge.id}`, {
-      scheduled_for: resultPlayedAt,
+      scheduled_for: scheduleScheduledFor,
     })
 
     if (!response.ok) {
@@ -600,6 +615,13 @@ function ChallengeCardComponent({
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Swords className="size-4 text-primary" />
             {challenge.ranking.name}
+            {challenge.isViewerChallenge ? (
+              <StatPill
+                label="Seu desafio"
+                tone="info"
+                className="px-2 py-0.5 text-[11px]"
+              />
+            ) : null}
           </div>
           <StatPill
             label={statusDisplay.label}
@@ -681,6 +703,44 @@ function ChallengeCardComponent({
           <p className="text-sm text-destructive" role="alert">
             {error}
           </p>
+        ) : null}
+
+        {actionMode === "schedule" ? (
+          <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+            <p className="text-xs text-muted-foreground">
+              Informe apenas o horario do jogo.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor={`schedule-date-${challenge.id}`}>
+                Jogo marcado para
+              </Label>
+              <Input
+                id={`schedule-date-${challenge.id}`}
+                type="datetime-local"
+                step="1"
+                value={scheduleScheduledFor}
+                onChange={(event) => setScheduleScheduledFor(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={handleSchedule}
+                disabled={loading === "schedule"}
+                className="bg-sky-100 text-sky-900 hover:bg-sky-200"
+              >
+                {loading === "schedule" ? "Salvando..." : "Salvar horario"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setActionMode(null)}
+                disabled={loading === "schedule"}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
         ) : null}
 
         {actionMode === "result" ? (
@@ -792,17 +852,9 @@ function ChallengeCardComponent({
               </Button>
               <Button
                 size="sm"
-                variant="outline"
-                onClick={handleSchedule}
-                disabled={loading === "schedule"}
-              >
-                {loading === "schedule" ? "Salvando..." : "Salvar horario"}
-              </Button>
-              <Button
-                size="sm"
                 variant="ghost"
                 onClick={() => setActionMode(null)}
-                disabled={loading === "result" || loading === "schedule"}
+                disabled={loading === "result"}
               >
                 Fechar
               </Button>
@@ -957,6 +1009,17 @@ function ChallengeCardComponent({
                 onClick={openResult}
               >
                 Resultado
+              </Button>
+            ) : null}
+            {canSchedule ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-sky-300 bg-sky-100 text-sky-900 shadow-sm hover:bg-sky-200"
+                onClick={openSchedule}
+                disabled={loading === "schedule"}
+              >
+                Agendar desafio
               </Button>
             ) : null}
             {isAdmin ? (
