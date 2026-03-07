@@ -588,7 +588,7 @@ export async function GET(request: Request) {
   return jsonResponse(payload)
 }
 
-export async function POST(request: Request) {
+const handleCreateChallenge = async (request: Request) => {
   const session = await getSessionFromCookies()
   if (!session) {
     return NextResponse.json(
@@ -1046,4 +1046,16 @@ export async function POST(request: Request) {
     { ok: true, data: { id: created.challenge.id } },
     { status: 201 }
   )
+}
+
+export async function POST(request: Request) {
+  try {
+    return await handleCreateChallenge(request)
+  } catch (error) {
+    console.error("[api/challenges][POST] failed", error)
+    return NextResponse.json(
+      { ok: false, message: "Erro interno ao criar desafio." },
+      { status: 500 }
+    )
+  }
 }
