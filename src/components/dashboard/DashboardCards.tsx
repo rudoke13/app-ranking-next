@@ -377,6 +377,14 @@ export default function DashboardCards() {
       scheduledLabel: formatDate(challenge.scheduledFor),
     }))
   }, [deferredReceivedChallenges])
+  const myChallenges = useMemo(() => {
+    return [...deferredMyChallenges].sort((left, right) => {
+      const leftTime = new Date(left.scheduledFor).getTime()
+      const rightTime = new Date(right.scheduledFor).getTime()
+      if (leftTime !== rightTime) return rightTime - leftTime
+      return right.id - left.id
+    })
+  }, [deferredMyChallenges])
   const recentResults = useMemo(() => {
     return deferredRecentResults.map((result) => ({
       ...result,
@@ -764,9 +772,9 @@ export default function DashboardCards() {
         title="Meus desafios"
         subtitle="Atualize os resultados das partidas"
       />
-      {deferredMyChallenges.length ? (
+      {myChallenges.length ? (
         <div className="space-y-3">
-          {deferredMyChallenges.map((challenge) => {
+          {myChallenges.map((challenge) => {
             const opponent = challenge.isChallenger
               ? challenge.challenged
               : challenge.challenger

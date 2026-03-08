@@ -209,19 +209,23 @@ export async function GET(request: Request) {
   const receivedChallengesPromise = db.challenges.findMany({
     where: {
       challenged_id: userId,
-      status: { in: ["scheduled", "accepted", "declined"] },
+      status: { not: "cancelled" },
     },
     select: {
       id: true,
       status: true,
       scheduled_for: true,
+      winner: true,
+      played_at: true,
+      challenger_games: true,
+      challenged_games: true,
+      challenger_walkover: true,
+      challenged_walkover: true,
       users_challenges_challenger_idTousers: {
         select: { first_name: true, last_name: true, nickname: true },
       },
     },
-    orderBy: {
-      scheduled_for: "desc",
-    },
+    orderBy: [{ scheduled_for: "desc" }, { id: "desc" }],
     take: 3,
   })
 
@@ -250,7 +254,7 @@ export async function GET(request: Request) {
         select: { id: true, first_name: true, last_name: true, nickname: true, avatarUrl: true },
       },
     },
-    orderBy: [{ status: "asc" }, { scheduled_for: "asc" }],
+    orderBy: [{ scheduled_for: "desc" }, { id: "desc" }],
     take: 10,
   })
 
@@ -492,7 +496,15 @@ export async function GET(request: Request) {
     })),
     received: receivedChallenges.map((challenge) => ({
       id: challenge.id,
-      status: challenge.status,
+      status: resolveChallengeStatus({
+        status: challenge.status,
+        winner: challenge.winner,
+        played_at: challenge.played_at,
+        challenger_games: challenge.challenger_games,
+        challenged_games: challenge.challenged_games,
+        challenger_walkover: challenge.challenger_walkover,
+        challenged_walkover: challenge.challenged_walkover,
+      }),
       scheduledFor: challenge.scheduled_for.toISOString(),
       opponent: formatName(
         challenge.users_challenges_challenger_idTousers.first_name,
