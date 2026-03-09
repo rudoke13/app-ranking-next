@@ -18,16 +18,58 @@ const resolveFrom = () => {
   return from || env("SMTP_USER") || "no-reply@tcc.com.br"
 }
 
-const resolveAppUrl = () => env("APP_URL") || "http://localhost:3000"
+const normalizeUrlCandidate = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+
+  try {
+    return new URL(normalized)
+  } catch {
+    return null
+  }
+}
+
+const isLocalUrl = (value: URL) =>
+  value.hostname === "localhost" ||
+  value.hostname === "127.0.0.1" ||
+  value.hostname === "0.0.0.0"
+
+const resolveAppUrl = (fallbackUrl?: string | null) => {
+  const candidates = [
+    env("APP_URL"),
+    env("NEXT_PUBLIC_APP_URL"),
+    fallbackUrl ?? "",
+    env("VERCEL_PROJECT_PRODUCTION_URL"),
+    env("VERCEL_URL"),
+  ]
+    .map(normalizeUrlCandidate)
+    .filter((value): value is URL => Boolean(value))
+
+  const firstPublic = candidates.find((value) => !isLocalUrl(value))
+  if (firstPublic) {
+    return firstPublic.toString().replace(/\/+$/, "")
+  }
+
+  const firstLocal = candidates[0]
+  if (firstLocal) {
+    return firstLocal.toString().replace(/\/+$/, "")
+  }
+
+  return "http://localhost:3000"
+}
 
 export async function sendPasswordResetEmail({
   to,
   token,
+  appUrl,
 }: {
   to: string
   token: string
+  appUrl?: string | null
 }) {
-  const link = `${resolveAppUrl().replace(/\/+$/, "")}/reset-password?token=${encodeURIComponent(token)}`
+  const link = `${resolveAppUrl(appUrl)}/reset-password?token=${encodeURIComponent(token)}`
 
   if (!isConfigured()) {
     // In local/dev without SMTP configured, log the link.

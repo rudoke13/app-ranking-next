@@ -14,6 +14,31 @@ const TOKEN_TTL_MS = 60 * 60 * 1000
 const hashToken = (token: string) =>
   createHash("sha256").update(token).digest("hex")
 
+const resolveRequestAppUrl = (request: Request) => {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+
+  if (forwardedHost) {
+    const protocol = forwardedProto || "https"
+    return `${protocol}://${forwardedHost}`
+  }
+
+  const host = request.headers.get("host")?.trim()
+  if (host) {
+    const isLocalHost =
+      host.includes("localhost") ||
+      host.startsWith("127.0.0.1") ||
+      host.startsWith("0.0.0.0")
+    return `${isLocalHost ? "http" : "https"}://${host}`
+  }
+
+  try {
+    return new URL(request.url).origin
+  } catch {
+    return null
+  }
+}
+
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null)
   const parsed = bodySchema.safeParse(payload)
@@ -42,7 +67,11 @@ export async function POST(request: Request) {
       },
     })
 
-    await sendPasswordResetEmail({ to: email, token })
+    await sendPasswordResetEmail({
+      to: email,
+      token,
+      appUrl: resolveRequestAppUrl(request),
+    })
   }
 
   return NextResponse.json({
