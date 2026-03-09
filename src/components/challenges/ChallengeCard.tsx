@@ -1,7 +1,7 @@
 "use client"
 
 import { memo, useEffect, useMemo, useState } from "react"
-import { CalendarDays, Flag, Swords } from "lucide-react"
+import { CalendarDays, Flag, MessageCircle, Swords } from "lucide-react"
 
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
 import UserAvatar from "@/components/app/UserAvatar"
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select"
 import { apiDelete, apiPatch, apiPost } from "@/lib/http"
 import { markChallengesUpdated } from "@/lib/preferences/challenge-refresh-client"
+import { buildWhatsAppUrl } from "@/lib/whatsapp"
 
 const statusLabel = {
   scheduled: "Pendente",
@@ -61,6 +62,7 @@ export type ChallengeItem = {
   winner: "challenger" | "challenged" | null
   ranking: { id: number; name: string; slug: string }
   isViewerChallenge: boolean
+  viewerRole: "challenger" | "challenged" | null
   createdAt: string
   scheduledFor: string
   playedAt: string | null
@@ -72,8 +74,8 @@ export type ChallengeItem = {
   challengedWalkover: boolean
   challengerRetired: boolean
   challengedRetired: boolean
-  challenger: { id: number; name: string; avatarUrl: string | null }
-  challenged: { id: number; name: string; avatarUrl: string | null }
+  challenger: { id: number; name: string; avatarUrl: string | null; phone: string | null }
+  challenged: { id: number; name: string; avatarUrl: string | null; phone: string | null }
   cancelWindowOpen: boolean
   cancelWindowClosesAt?: string | null
   canCancel: boolean
@@ -275,6 +277,23 @@ function ChallengeCardComponent({
     challenge.isViewerChallenge &&
     !isAdmin &&
     (challenge.status === "scheduled" || challenge.status === "accepted")
+  const opponent =
+    challenge.viewerRole === "challenger"
+      ? challenge.challenged
+      : challenge.viewerRole === "challenged"
+      ? challenge.challenger
+      : null
+  const whatsappUrl = useMemo(() => {
+    if (!opponent) return null
+    if (challenge.status !== "scheduled" && challenge.status !== "accepted") {
+      return null
+    }
+    return buildWhatsAppUrl(
+      opponent.phone,
+      `Ola ${opponent.name}, vamos combinar nosso desafio no ${challenge.ranking.name}?`
+    )
+  }, [challenge.ranking.name, challenge.status, opponent])
+  const canContactOpponent = !isAdmin && challenge.isViewerChallenge && Boolean(whatsappUrl)
 
   const cancelCountdown = useMemo(() => {
     if (!cancelDeadline || !cancelWindowOpen || isAdmin) return null
@@ -286,7 +305,7 @@ function ChallengeCardComponent({
   }, [cancelDeadline, cancelWindowOpen, isAdmin, now])
 
   const showActions =
-    (canCancelNow || canSchedule || challenge.canResult || isAdmin) &&
+    (canCancelNow || canSchedule || canContactOpponent || challenge.canResult || isAdmin) &&
     actionMode === null
 
   const runAction = async (endpoint: string, body?: unknown) => {
@@ -1020,6 +1039,18 @@ function ChallengeCardComponent({
                 disabled={loading === "schedule"}
               >
                 Agendar desafio
+              </Button>
+            ) : null}
+            {canContactOpponent && whatsappUrl ? (
+              <Button
+                size="sm"
+                asChild
+                className="bg-[#25D366] text-white shadow-sm hover:bg-[#1ebe5b]"
+              >
+                <a href={whatsappUrl} target="_blank" rel="noreferrer">
+                  <MessageCircle className="size-4" />
+                  WhatsApp
+                </a>
               </Button>
             ) : null}
             {isAdmin ? (

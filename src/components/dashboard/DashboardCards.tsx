@@ -12,6 +12,7 @@ import Link from "next/link"
 import {
   CalendarDays,
   CircleCheck,
+  MessageCircle,
   Sparkles,
   Swords,
   Trophy,
@@ -54,6 +55,7 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { buildWhatsAppUrl } from "@/lib/whatsapp"
 
 const statusTone = {
   scheduled: "warning",
@@ -135,8 +137,8 @@ type DashboardData = {
     scheduledFor: string
     ranking: string
     isChallenger: boolean
-    challenger: { id: number; name: string; avatarUrl: string | null }
-    challenged: { id: number; name: string; avatarUrl: string | null }
+    challenger: { id: number; name: string; avatarUrl: string | null; phone: string | null }
+    challenged: { id: number; name: string; avatarUrl: string | null; phone: string | null }
   }[]
   recentResults: {
     id: number
@@ -780,6 +782,12 @@ export default function DashboardCards() {
               : challenge.challenger
             const isPending =
               challenge.status === "scheduled" || challenge.status === "accepted"
+            const whatsappUrl = isPending
+              ? buildWhatsAppUrl(
+                  opponent.phone,
+                  `Ola ${opponent.name}, vamos combinar nosso desafio no ${challenge.ranking}?`
+                )
+              : null
             const challengeKey = monthKeyFromValue(challenge.scheduledFor)
             const canUpdate =
               isPending &&
@@ -810,14 +818,29 @@ export default function DashboardCards() {
                         </div>
                       </div>
                     </div>
-                    {canUpdate ? (
-                      <Button
-                        variant="default"
-                        className="w-full shadow-sm sm:w-auto"
-                        onClick={() => openResultFor(challenge)}
-                      >
-                        Atualizar placar
-                      </Button>
+                    {canUpdate || whatsappUrl ? (
+                      <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                        {whatsappUrl ? (
+                          <Button
+                            asChild
+                            className="w-full bg-[#25D366] text-white shadow-sm hover:bg-[#1ebe5b] sm:w-auto"
+                          >
+                            <a href={whatsappUrl} target="_blank" rel="noreferrer">
+                              <MessageCircle className="size-4" />
+                              WhatsApp
+                            </a>
+                          </Button>
+                        ) : null}
+                        {canUpdate ? (
+                          <Button
+                            variant="default"
+                            className="w-full shadow-sm sm:w-auto"
+                            onClick={() => openResultFor(challenge)}
+                          >
+                            Atualizar placar
+                          </Button>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
 

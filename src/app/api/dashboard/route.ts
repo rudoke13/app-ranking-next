@@ -248,10 +248,24 @@ export async function GET(request: Request) {
       challenged_id: true,
       rankings: { select: { name: true } },
       users_challenges_challenger_idTousers: {
-        select: { id: true, first_name: true, last_name: true, nickname: true, avatarUrl: true },
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          nickname: true,
+          avatarUrl: true,
+          phone: true,
+        },
       },
       users_challenges_challenged_idTousers: {
-        select: { id: true, first_name: true, last_name: true, nickname: true, avatarUrl: true },
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          nickname: true,
+          avatarUrl: true,
+          phone: true,
+        },
       },
     },
     orderBy: [{ scheduled_for: "desc" }, { id: "desc" }],
@@ -534,6 +548,7 @@ export async function GET(request: Request) {
           challenge.users_challenges_challenger_idTousers.nickname
         ),
         avatarUrl: challenge.users_challenges_challenger_idTousers.avatarUrl ?? null,
+        phone: challenge.users_challenges_challenger_idTousers.phone ?? null,
       },
       challenged: {
         id: challenge.challenged_id,
@@ -543,6 +558,7 @@ export async function GET(request: Request) {
           challenge.users_challenges_challenged_idTousers.nickname
         ),
         avatarUrl: challenge.users_challenges_challenged_idTousers.avatarUrl ?? null,
+        phone: challenge.users_challenges_challenged_idTousers.phone ?? null,
       },
     })),
     recentResults: recentResults.map((challenge) => ({
