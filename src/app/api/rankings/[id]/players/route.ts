@@ -583,6 +583,14 @@ export async function GET(
       result: "win" | "loss" | "pending"
     }
   >()
+  let viewerChallengeTargetId: number | null = null
+
+  if (Number.isFinite(userId)) {
+    const viewerCreatedChallenge = challenges.find(
+      (row) => row.challenger_id === userId
+    )
+    viewerChallengeTargetId = viewerCreatedChallenge?.challenged_id ?? null
+  }
 
   for (const row of challenges) {
     // Para o resumo visual da lista, so consideramos resultado (vitoria/derrota)
@@ -747,6 +755,7 @@ export async function GET(
     data: {
       serverNow: now.toISOString(),
       viewerId: Number(session.userId),
+      viewerChallengeTargetId,
       canManage,
       canManageAll,
       ranking: {

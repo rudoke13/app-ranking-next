@@ -109,6 +109,7 @@ type PlayerItem = {
 type PlayersResponse = {
   serverNow?: string
   viewerId: number
+  viewerChallengeTargetId?: number | null
   canManage?: boolean
   canManageAll?: boolean
   ranking: RankingItem
@@ -402,6 +403,7 @@ type ActivePlayerCardView = {
   statusBadges: PlayerStatusBadge[]
   showChallengeButton: boolean
   challengeDisabled: boolean
+  challengeClaimed: boolean
   canChallenge: boolean
   showCountdown: boolean
   showAdminEdit: boolean
@@ -498,6 +500,9 @@ const RankingPlayerCard = memo(
   }: RankingPlayerCardProps) {
     const badgeClassName =
       "px-1.5 py-0.5 text-[10px] leading-none sm:px-2 sm:py-1 sm:text-xs"
+    const challengeButtonClassName = row.challengeClaimed
+      ? "bg-emerald-500 text-white hover:bg-emerald-500 focus-visible:ring-emerald-200 disabled:bg-emerald-500 disabled:text-white disabled:opacity-100"
+      : undefined
 
     return (
       <Card
@@ -634,13 +639,16 @@ const RankingPlayerCard = memo(
             <div className="flex shrink-0 flex-row flex-wrap items-center gap-1.5 sm:w-auto sm:flex-row sm:items-center">
               {row.showChallengeButton ? (
                 <Button
-                  className="h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm"
+                  className={cn(
+                    "h-10 w-10 px-0 text-[11px] sm:h-9 sm:w-auto sm:px-4 sm:text-sm",
+                    challengeButtonClassName
+                  )}
                   disabled={row.challengeDisabled || isActionLoading}
                   onClick={(event) => {
                     event.stopPropagation()
                     onChallenge(row.player.userId)
                   }}
-                  aria-label="Desafiar"
+                  aria-label={row.challengeClaimed ? "Jogador ja desafiado" : "Desafiar"}
                 >
                   <Swords className="size-4 sm:hidden" />
                   <span className="hidden sm:inline">
@@ -693,6 +701,7 @@ export default function RankingList() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [optimisticChallengeTargetId, setOptimisticChallengeTargetId] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [draftPlayers, setDraftPlayers] = useState<PlayerItem[]>([])
   const [reorderError, setReorderError] = useState<string | null>(null)
@@ -743,6 +752,7 @@ export default function RankingList() {
     setEditingPlayer(null)
     setEditSaving(false)
     setEditError(null)
+    setOptimisticChallengeTargetId(null)
   }, [])
 
   const redirectToLogin = useCallback(() => {
@@ -1106,6 +1116,8 @@ export default function RankingList() {
   const viewerIsAccess = Boolean(viewerEntry?.isAccessChallenge)
   const viewerIsSuspended = Boolean(viewerEntry?.isSuspended)
   const viewerHasChallenge = Boolean(viewerEntry?.summary)
+  const viewerChallengeTargetId =
+    optimisticChallengeTargetId ?? playersData?.viewerChallengeTargetId ?? null
   const maxUp = playersData?.maxPositionsUp ?? 10
 
   const parseTime = (value?: string | null) => {
@@ -1441,6 +1453,7 @@ export default function RankingList() {
       return
     }
 
+    setOptimisticChallengeTargetId(playerId)
     markChallengesUpdated()
     await refreshPlayers(playersData.ranking.id, adminMonth, { bypassCache: true })
     setActionLoading(null)
@@ -1720,6 +1733,7 @@ export default function RankingList() {
         player.position >= (playersData?.accessThreshold ?? 0)
       const rangeAllowed = viewerIsAccess ? accessAllowed : withinRange
       const targetHasChallenge = Boolean(player.summary)
+      const challengeClaimed = viewerChallengeTargetId === player.userId
       const showChallengeButton =
         showChallenge &&
         !viewerIsSuspended &&
@@ -1760,6 +1774,7 @@ export default function RankingList() {
         statusBadges,
         showChallengeButton,
         challengeDisabled,
+        challengeClaimed,
         canChallenge,
         showCountdown,
         showAdminEdit: canManage && !editing,
@@ -1780,6 +1795,7 @@ export default function RankingList() {
     viewerIsBlue,
     viewerBlueCanChallengeInOpen,
     viewerIsSuspended,
+    viewerChallengeTargetId,
     viewerPosition,
   ])
 
