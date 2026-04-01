@@ -531,6 +531,9 @@ export async function GET(request: Request) {
         (entry.normalizedStatus === "scheduled" &&
           (isAdmin || !cancelWindowOpen))) &&
       (isChallenger || isChallenged || isAdmin)
+    const canEditResult =
+      entry.normalizedStatus === "completed" &&
+      (isChallenger || isChallenged || isAdmin)
 
     return {
       id: challenge.id,
@@ -570,6 +573,7 @@ export async function GET(request: Request) {
       cancelWindowClosesAt,
       canCancel,
       canResult,
+      canEditResult,
     }
   }).filter((item): item is NonNullable<typeof item> => Boolean(item))
 

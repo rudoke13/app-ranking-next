@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { resolveChallengeStatus } from "@/lib/challenges/result"
 import { db } from "@/lib/db"
 import { hasAdminAccess } from "@/lib/domain/permissions"
 import { ensureBaselineSnapshot, monthStartFrom } from "@/lib/domain/ranking"
@@ -71,6 +72,17 @@ export async function PATCH(
   const userId = Number(session.userId)
   const isParticipant =
     challenge.challenger_id === userId || challenge.challenged_id === userId
+  const normalizedStatus = resolveChallengeStatus({
+    status: challenge.status,
+    winner: challenge.winner,
+    played_at: challenge.played_at,
+    challenger_games: challenge.challenger_games,
+    challenged_games: challenge.challenged_games,
+    challenger_walkover: challenge.challenger_walkover,
+    challenged_walkover: challenge.challenged_walkover,
+  })
+  const hasResultUpdate = parsed.data.result !== undefined
+  const hasScheduleUpdate = parsed.data.scheduled_for !== undefined
 
   if (!isAdmin) {
     if (!isParticipant) {
@@ -80,25 +92,42 @@ export async function PATCH(
       )
     }
 
-    if (parsed.data.result) {
-      return NextResponse.json(
-        { ok: false, message: "Apenas o admin pode editar o resultado aqui." },
-        { status: 403 }
-      )
-    }
+    if (hasResultUpdate) {
+      if (normalizedStatus !== "completed") {
+        return NextResponse.json(
+          {
+            ok: false,
+            message:
+              "O placar so pode ser editado apos o resultado ser registrado.",
+          },
+          { status: 422 }
+        )
+      }
 
-    if (parsed.data.scheduled_for === undefined) {
-      return NextResponse.json(
-        { ok: false, message: "Nenhuma alteracao enviada." },
-        { status: 400 }
-      )
-    }
+      if (hasScheduleUpdate) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message:
+              "Apenas o admin pode editar a data do desafio apos o resultado.",
+          },
+          { status: 403 }
+        )
+      }
+    } else {
+      if (!hasScheduleUpdate) {
+        return NextResponse.json(
+          { ok: false, message: "Nenhuma alteracao enviada." },
+          { status: 400 }
+        )
+      }
 
-    if (!["scheduled", "accepted"].includes(challenge.status)) {
-      return NextResponse.json(
-        { ok: false, message: "O desafio nao pode ser reagendado." },
-        { status: 422 }
-      )
+      if (!["scheduled", "accepted"].includes(normalizedStatus)) {
+        return NextResponse.json(
+          { ok: false, message: "O desafio nao pode ser reagendado." },
+          { status: 422 }
+        )
+      }
     }
   }
 

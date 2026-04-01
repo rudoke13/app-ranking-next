@@ -80,6 +80,7 @@ export type ChallengeItem = {
   cancelWindowClosesAt?: string | null
   canCancel: boolean
   canResult: boolean
+  canEditResult: boolean
 }
 
 export type ChallengeCardProps = {
@@ -231,6 +232,9 @@ function ChallengeCardComponent({
       : scoreLabel.startsWith("W.O.") || scoreLabel.includes("RET")
       ? "warning"
       : "success"
+  const woChallengerOptionLabel = `Vitoria de W.O. para ${challenge.challenger.name}`
+  const woChallengedOptionLabel = `Vitoria de W.O. para ${challenge.challenged.name}`
+  const doubleWoOptionLabel = "W.O. duplo (sem vencedor)"
 
   const formatGames = (games: number | null, tiebreak: number | null) => {
     if (games === null) return "-"
@@ -273,6 +277,8 @@ function ChallengeCardComponent({
       : "warning"
 
   const canCancelNow = challenge.canCancel && (isAdmin || cancelWindowOpen)
+  const canEditResult = isAdmin || challenge.canEditResult
+  const canEditSchedule = isAdmin
   const canSchedule =
     challenge.isViewerChallenge &&
     !isAdmin &&
@@ -305,7 +311,13 @@ function ChallengeCardComponent({
   }, [cancelDeadline, cancelWindowOpen, isAdmin, now])
 
   const showActions =
-    (canCancelNow || canSchedule || canContactOpponent || challenge.canResult || isAdmin) &&
+    (
+      canCancelNow ||
+      canSchedule ||
+      canContactOpponent ||
+      challenge.canResult ||
+      canEditResult
+    ) &&
     actionMode === null
 
   const runAction = async (endpoint: string, body?: unknown) => {
@@ -369,11 +381,14 @@ function ChallengeCardComponent({
   }
 
   const openEdit = () => {
+    const initialResultType =
+      !isAdmin && defaultResultType === "none" ? "score" : defaultResultType
+
     setEditScheduledFor(toDateTimeInputInAppTz(challenge.scheduledFor))
     setEditPlayedAt(
       toDateTimeInputInAppTz(challenge.playedAt ?? challenge.scheduledFor)
     )
-    setEditResultType(defaultResultType)
+    setEditResultType(initialResultType)
     setEditChallengerGames(
       challenge.challengerGames !== null
         ? String(challenge.challengerGames)
@@ -399,13 +414,18 @@ function ChallengeCardComponent({
   }
 
   const handleEdit = async () => {
-    if (!editScheduledFor) {
+    if (canEditSchedule && !editScheduledFor) {
       setError("Informe a data do desafio.")
       return
     }
 
     const resultType = editResultType
     let resultPayload: Record<string, unknown> | undefined
+
+    if (!isAdmin && resultType === "none") {
+      setError("Selecione o tipo de resultado.")
+      return
+    }
 
     if (resultType !== "none") {
       if (!editPlayedAt) {
@@ -487,12 +507,24 @@ function ChallengeCardComponent({
       }
     }
 
+    if (!isAdmin && !resultPayload) {
+      setError("Selecione o tipo de resultado.")
+      return
+    }
+
     setLoading("edit")
     setError(null)
-    const response = await apiPatch(`/api/challenges/${challenge.id}`, {
-      scheduled_for: editScheduledFor,
-      result: resultPayload,
-    })
+    const payload: Record<string, unknown> = {}
+
+    if (canEditSchedule) {
+      payload.scheduled_for = editScheduledFor
+    }
+
+    if (resultPayload) {
+      payload.result = resultPayload
+    }
+
+    const response = await apiPatch(`/api/challenges/${challenge.id}`, payload)
 
     if (!response.ok) {
       setError(response.message)
@@ -791,12 +823,12 @@ function ChallengeCardComponent({
                   <SelectContent>
                     <SelectItem value="score">Placar</SelectItem>
                     <SelectItem value="wo_challenger">
-                      W.O. para o desafiante
+                      {woChallengerOptionLabel}
                     </SelectItem>
                     <SelectItem value="wo_challenged">
-                      W.O. para o desafiado
+                      {woChallengedOptionLabel}
                     </SelectItem>
-                    <SelectItem value="double_wo">W.O. duplo</SelectItem>
+                    <SelectItem value="double_wo">{doubleWoOptionLabel}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -883,17 +915,24 @@ function ChallengeCardComponent({
 
         {actionMode === "edit" ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3">
+            {!isAdmin ? (
+              <p className="text-xs text-muted-foreground">
+                Corrija apenas o resultado deste jogo.
+              </p>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`edit-date-${challenge.id}`}>Data do desafio</Label>
-                <Input
-                  id={`edit-date-${challenge.id}`}
-                  type="datetime-local"
-                  value={editScheduledFor}
-                  onChange={(event) => setEditScheduledFor(event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
+              {canEditSchedule ? (
+                <div className="space-y-2">
+                  <Label htmlFor={`edit-date-${challenge.id}`}>Data do desafio</Label>
+                  <Input
+                    id={`edit-date-${challenge.id}`}
+                    type="datetime-local"
+                    value={editScheduledFor}
+                    onChange={(event) => setEditScheduledFor(event.target.value)}
+                  />
+                </div>
+              ) : null}
+              <div className={cn("space-y-2", !canEditSchedule && "md:col-span-2")}>
                 <Label htmlFor={`edit-result-${challenge.id}`}>
                   Tipo de resultado
                 </Label>
@@ -902,15 +941,17 @@ function ChallengeCardComponent({
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Sem resultado</SelectItem>
+                    {isAdmin ? (
+                      <SelectItem value="none">Sem resultado</SelectItem>
+                    ) : null}
                     <SelectItem value="score">Placar</SelectItem>
                     <SelectItem value="wo_challenger">
-                      W.O. para o desafiante
+                      {woChallengerOptionLabel}
                     </SelectItem>
                     <SelectItem value="wo_challenged">
-                      W.O. para o desafiado
+                      {woChallengedOptionLabel}
                     </SelectItem>
-                    <SelectItem value="double_wo">W.O. duplo</SelectItem>
+                    <SelectItem value="double_wo">{doubleWoOptionLabel}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -992,7 +1033,11 @@ function ChallengeCardComponent({
                 onClick={handleEdit}
                 disabled={loading === "edit"}
               >
-                {loading === "edit" ? "Salvando..." : "Salvar alteracoes"}
+                {loading === "edit"
+                  ? "Salvando..."
+                  : isAdmin
+                  ? "Salvar alteracoes"
+                  : "Salvar resultado"}
               </Button>
               <Button
                 size="sm"
@@ -1053,14 +1098,14 @@ function ChallengeCardComponent({
                 </a>
               </Button>
             ) : null}
-            {isAdmin ? (
+            {canEditResult ? (
               <Button
                 size="sm"
                 variant="outline"
                 onClick={openEdit}
                 disabled={loading === "edit"}
               >
-                Editar
+                {isAdmin ? "Editar" : "Editar placar"}
               </Button>
             ) : null}
             {isAdmin ? (
