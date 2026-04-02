@@ -44,6 +44,136 @@ const updateSchema = z.object({
   membership: membershipSchema.optional(),
 })
 
+const membershipResultSelect = {
+  id: true,
+  ranking_id: true,
+  is_blue_point: true,
+  is_access_challenge: true,
+  is_suspended: true,
+  position: true,
+  license_position: true,
+} satisfies Prisma.ranking_membershipsSelect
+
+type TransactionClient = Prisma.TransactionClient
+type MembershipResult = Prisma.ranking_membershipsGetPayload<{
+  select: typeof membershipResultSelect
+}>
+type ManagedMembership = MembershipResult & {
+  user_id: number
+}
+
+const clampPosition = (value: number, max: number) => {
+  const upperBound = Math.max(max, 1)
+  return Math.min(Math.max(Math.trunc(value), 1), upperBound)
+}
+
+const resolveStoredLicensePosition = (
+  requestedPosition: number | null | undefined,
+  fallbackPosition: number,
+  maxPosition: number
+) => {
+  if (typeof requestedPosition === "number" && Number.isFinite(requestedPosition)) {
+    return clampPosition(requestedPosition, maxPosition)
+  }
+  return clampPosition(fallbackPosition, maxPosition)
+}
+
+const suspendMembership = async (
+  tx: TransactionClient,
+  membership: ManagedMembership,
+  options?: {
+    licensePosition?: number | null
+    updates?: Omit<Prisma.ranking_membershipsUncheckedUpdateInput, "is_suspended" | "license_position" | "position">
+  }
+): Promise<MembershipResult> => {
+  const activeMembersExcludingCurrent = await tx.ranking_memberships.count({
+    where: {
+      ranking_id: membership.ranking_id,
+      NOT: { is_suspended: true },
+      id: { not: membership.id },
+    },
+  })
+  const activeMembersBeforeSuspension =
+    activeMembersExcludingCurrent + (membership.is_suspended ? 0 : 1)
+  const fallbackPosition =
+    membership.position ?? Math.max(activeMembersBeforeSuspension, 1)
+  const storedLicensePosition = resolveStoredLicensePosition(
+    options?.licensePosition,
+    fallbackPosition,
+    Math.max(activeMembersBeforeSuspension, 1)
+  )
+
+  if (!membership.is_suspended && membership.position && membership.position > 0) {
+    await tx.ranking_memberships.updateMany({
+      where: {
+        ranking_id: membership.ranking_id,
+        NOT: { is_suspended: true },
+        id: { not: membership.id },
+        position: { gt: membership.position },
+      },
+      data: {
+        position: { decrement: 1 },
+      },
+    })
+  }
+
+  return tx.ranking_memberships.update({
+    where: { id: membership.id },
+    data: {
+      ...options?.updates,
+      is_suspended: true,
+      license_position: storedLicensePosition,
+      position: storedLicensePosition,
+    },
+    select: membershipResultSelect,
+  })
+}
+
+const reactivateMembership = async (
+  tx: TransactionClient,
+  membership: ManagedMembership,
+  options?: {
+    updates?: Omit<Prisma.ranking_membershipsUncheckedUpdateInput, "is_suspended" | "license_position" | "position">
+  }
+): Promise<MembershipResult> => {
+  const activeMembersExcludingCurrent = await tx.ranking_memberships.count({
+    where: {
+      ranking_id: membership.ranking_id,
+      NOT: { is_suspended: true },
+      id: { not: membership.id },
+    },
+  })
+  const storedLicensePosition =
+    membership.license_position ?? membership.position ?? activeMembersExcludingCurrent
+  const insertionPosition = Math.min(
+    clampPosition(storedLicensePosition + 1, activeMembersExcludingCurrent + 1),
+    activeMembersExcludingCurrent + 1
+  )
+
+  await tx.ranking_memberships.updateMany({
+    where: {
+      ranking_id: membership.ranking_id,
+      NOT: { is_suspended: true },
+      id: { not: membership.id },
+      position: { gte: insertionPosition },
+    },
+    data: {
+      position: { increment: 1 },
+    },
+  })
+
+  return tx.ranking_memberships.update({
+    where: { id: membership.id },
+    data: {
+      ...options?.updates,
+      is_suspended: false,
+      position: insertionPosition,
+      license_position: null,
+    },
+    select: membershipResultSelect,
+  })
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -437,15 +567,7 @@ export async function PATCH(
 
             updatedMembership = await tx.ranking_memberships.create({
               data: createData,
-              select: {
-                id: true,
-                ranking_id: true,
-                is_blue_point: true,
-                is_access_challenge: true,
-                is_suspended: true,
-                position: true,
-                license_position: true,
-              },
+              select: membershipResultSelect,
             })
           } else {
             throw new Error("membership_not_found")
@@ -488,19 +610,43 @@ export async function PATCH(
           }
 
           if (Object.keys(membershipUpdates).length > 0) {
-            updatedMembership = await tx.ranking_memberships.update({
-              where: { id: membership.id },
-              data: membershipUpdates,
-              select: {
-                id: true,
-                ranking_id: true,
-                is_blue_point: true,
-                is_access_challenge: true,
-                is_suspended: true,
-                position: true,
-                license_position: true,
-              },
-            })
+            const {
+              is_suspended: nextSuspendedFlag,
+              license_position: requestedLicensePosition,
+              ...remainingMembershipUpdates
+            } = membershipUpdates
+
+            if (
+              moveToRankingId === undefined &&
+              nextSuspendedFlag === true
+            ) {
+              updatedMembership = await suspendMembership(
+                tx,
+                membership,
+                {
+                  licensePosition: requestedLicensePosition,
+                  updates: remainingMembershipUpdates,
+                }
+              )
+            } else if (
+              moveToRankingId === undefined &&
+              nextSuspendedFlag === false &&
+              Boolean(membership.is_suspended)
+            ) {
+              updatedMembership = await reactivateMembership(
+                tx,
+                membership,
+                {
+                  updates: remainingMembershipUpdates,
+                }
+              )
+            } else {
+              updatedMembership = await tx.ranking_memberships.update({
+                where: { id: membership.id },
+                data: membershipUpdates,
+                select: membershipResultSelect,
+              })
+            }
           } else {
             updatedMembership = {
               id: membership.id,
@@ -572,10 +718,38 @@ export async function PATCH(
         if (isCollaborator) {
           where.ranking_id = { in: allowedRankingIds }
         }
-        await tx.ranking_memberships.updateMany({
+        const membershipsToToggle = await tx.ranking_memberships.findMany({
           where,
-          data: { is_suspended: !activeInput },
+          select: {
+            ...membershipResultSelect,
+            user_id: true,
+          },
+          orderBy: [
+            { ranking_id: "asc" },
+            { license_position: "asc" },
+            { position: "asc" },
+            { id: "asc" },
+          ],
         })
+
+        if (activeInput) {
+          const suspendedMemberships = membershipsToToggle.filter((membership) =>
+            Boolean(membership.is_suspended)
+          )
+          for (const membership of suspendedMemberships) {
+            await reactivateMembership(tx, membership)
+          }
+        } else {
+          const activeMemberships = membershipsToToggle.filter(
+            (membership) => !membership.is_suspended
+          )
+          for (const membership of activeMemberships) {
+            await suspendMembership(tx, membership, {
+              licensePosition:
+                membership.position ?? membership.license_position ?? null,
+            })
+          }
+        }
       }
 
       if (uniqueCollaboratorRankings) {

@@ -545,7 +545,7 @@ export default function AdminUsuariosPage() {
   ) => {
     if (field === "is_suspended" && value) {
       const defaultPosition =
-        membership.licensePosition ?? membership.position ?? null
+        membership.position ?? membership.licensePosition ?? null
       const input = window.prompt(
         "Informe a posicao que o jogador saiu para a licenca",
         defaultPosition ? String(defaultPosition) : ""
