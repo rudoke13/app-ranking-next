@@ -185,6 +185,12 @@ function ChallengeCardComponent({
     if (challenge.challengerWalkover) {
       return "wo_challenged"
     }
+    if (challenge.challengerRetired) {
+      return "retired_challenger"
+    }
+    if (challenge.challengedRetired) {
+      return "retired_challenged"
+    }
     if (
       challenge.challengerGames !== null &&
       challenge.challengedGames !== null
@@ -204,6 +210,12 @@ function ChallengeCardComponent({
     }
     if (challenge.challengedWalkover) {
       return `W.O. ${compactWoName(challenge.challenger.name)}`
+    }
+    if (challenge.challengerRetired) {
+      return `Desistencia ${compactWoName(challenge.challenger.name)}`
+    }
+    if (challenge.challengedRetired) {
+      return `Desistencia ${compactWoName(challenge.challenged.name)}`
     }
     if (
       challenge.challengerGames === null ||
@@ -229,11 +241,16 @@ function ChallengeCardComponent({
   const scoreTone: StatPillTone =
     challenge.status !== "completed"
       ? "neutral"
-      : scoreLabel.startsWith("W.O.") || scoreLabel.includes("RET")
+      : challenge.challengerWalkover ||
+        challenge.challengedWalkover ||
+        challenge.challengerRetired ||
+        challenge.challengedRetired
       ? "warning"
       : "success"
   const woChallengerOptionLabel = `Vitoria de W.O. para ${challenge.challenger.name}`
   const woChallengedOptionLabel = `Vitoria de W.O. para ${challenge.challenged.name}`
+  const retiredChallengerOptionLabel = `Desistencia para ${challenge.challenger.name}`
+  const retiredChallengedOptionLabel = `Desistencia para ${challenge.challenged.name}`
   const doubleWoOptionLabel = "W.O. duplo (sem vencedor)"
 
   const formatGames = (games: number | null, tiebreak: number | null) => {
@@ -247,6 +264,8 @@ function ChallengeCardComponent({
     if (challenge.challengerWalkover && challenge.challengedWalkover) return "W.O."
     if (challenge.challengerWalkover) return "W.O."
     if (challenge.challengedWalkover) return "Vencedor"
+    if (challenge.challengerRetired) return "Desistiu"
+    if (challenge.challengedRetired) return "Vencedor"
     return formatGames(challenge.challengerGames, challenge.challengerTiebreak)
   })()
 
@@ -255,8 +274,52 @@ function ChallengeCardComponent({
     if (challenge.challengerWalkover && challenge.challengedWalkover) return "W.O."
     if (challenge.challengerWalkover) return "Vencedor"
     if (challenge.challengedWalkover) return "W.O."
+    if (challenge.challengerRetired) return "Vencedor"
+    if (challenge.challengedRetired) return "Desistiu"
     return formatGames(challenge.challengedGames, challenge.challengedTiebreak)
   })()
+
+  const buildSpecialResultPayload = (
+    selectedResultType: string,
+    playedAt: string | undefined
+  ) => {
+    if (selectedResultType === "wo_challenger") {
+      return {
+        winner: "challenger",
+        played_at: playedAt,
+        challenged_walkover: true,
+      }
+    }
+
+    if (selectedResultType === "wo_challenged") {
+      return {
+        winner: "challenged",
+        played_at: playedAt,
+        challenger_walkover: true,
+      }
+    }
+
+    if (selectedResultType === "retired_challenger") {
+      return {
+        winner: "challenged",
+        played_at: playedAt,
+        challenger_retired: true,
+      }
+    }
+
+    if (selectedResultType === "retired_challenged") {
+      return {
+        winner: "challenger",
+        played_at: playedAt,
+        challenged_retired: true,
+      }
+    }
+
+    return {
+      double_walkover: true,
+      played_at: playedAt,
+    }
+  }
 
   const challengerLineTone: StatPillTone =
     challenge.status !== "completed"
@@ -487,23 +550,8 @@ function ChallengeCardComponent({
           challenger_tiebreak: challengerTiebreak,
           challenged_tiebreak: challengedTiebreak,
         }
-      } else if (resultType === "wo_challenger") {
-        resultPayload = {
-          winner: "challenger",
-          played_at: editPlayedAt,
-          challenged_walkover: true,
-        }
-      } else if (resultType === "wo_challenged") {
-        resultPayload = {
-          winner: "challenged",
-          played_at: editPlayedAt,
-          challenger_walkover: true,
-        }
-      } else if (resultType === "double_wo") {
-        resultPayload = {
-          double_walkover: true,
-          played_at: editPlayedAt,
-        }
+      } else {
+        resultPayload = buildSpecialResultPayload(resultType, editPlayedAt)
       }
     }
 
@@ -606,28 +654,7 @@ function ChallengeCardComponent({
       return
     }
 
-    if (resultType === "wo_challenger") {
-      await runAction("result", {
-        winner: "challenger",
-        played_at: playedAt,
-        challenged_walkover: true,
-      })
-      return
-    }
-
-    if (resultType === "wo_challenged") {
-      await runAction("result", {
-        winner: "challenged",
-        played_at: playedAt,
-        challenger_walkover: true,
-      })
-      return
-    }
-
-    await runAction("result", {
-      double_walkover: true,
-      played_at: playedAt,
-    })
+    await runAction("result", buildSpecialResultPayload(resultType, playedAt))
   }
 
   const handleSchedule = async () => {
@@ -828,6 +855,12 @@ function ChallengeCardComponent({
                     <SelectItem value="wo_challenged">
                       {woChallengedOptionLabel}
                     </SelectItem>
+                    <SelectItem value="retired_challenger">
+                      {retiredChallengerOptionLabel}
+                    </SelectItem>
+                    <SelectItem value="retired_challenged">
+                      {retiredChallengedOptionLabel}
+                    </SelectItem>
                     <SelectItem value="double_wo">{doubleWoOptionLabel}</SelectItem>
                   </SelectContent>
                 </Select>
@@ -950,6 +983,12 @@ function ChallengeCardComponent({
                     </SelectItem>
                     <SelectItem value="wo_challenged">
                       {woChallengedOptionLabel}
+                    </SelectItem>
+                    <SelectItem value="retired_challenger">
+                      {retiredChallengerOptionLabel}
+                    </SelectItem>
+                    <SelectItem value="retired_challenged">
+                      {retiredChallengedOptionLabel}
                     </SelectItem>
                     <SelectItem value="double_wo">{doubleWoOptionLabel}</SelectItem>
                   </SelectContent>

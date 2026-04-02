@@ -848,6 +848,18 @@ export default function DesafiosClient() {
           played_at: createScheduledFor || undefined,
           challenger_walkover: true,
         }
+      } else if (resultType === "retired_challenger") {
+        resultPayload = {
+          winner: "challenged",
+          played_at: createScheduledFor || undefined,
+          challenger_retired: true,
+        }
+      } else if (resultType === "retired_challenged") {
+        resultPayload = {
+          winner: "challenger",
+          played_at: createScheduledFor || undefined,
+          challenged_retired: true,
+        }
       } else if (resultType === "double_wo") {
         resultPayload = {
           double_walkover: true,
@@ -1043,6 +1055,12 @@ export default function DesafiosClient() {
                       </SelectItem>
                       <SelectItem value="wo_challenged">
                         W.O. para o desafiado
+                      </SelectItem>
+                      <SelectItem value="retired_challenger">
+                        Desistencia para o desafiante
+                      </SelectItem>
+                      <SelectItem value="retired_challenged">
+                        Desistencia para o desafiado
                       </SelectItem>
                       <SelectItem value="double_wo">W.O. duplo</SelectItem>
                     </SelectContent>

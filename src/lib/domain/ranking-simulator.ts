@@ -116,6 +116,17 @@ export class RankingSimulator {
     this.movement[userId] = RankingMovement.PENALTY
   }
 
+  enforceMaximumPosition(userId: number, maximumPosition: number) {
+    const currentIndex = this.indexOf(userId)
+    if (currentIndex === -1) return
+
+    const currentPosition = currentIndex + 1
+    if (currentPosition <= maximumPosition) return
+
+    this.remove(userId)
+    this.insertAt(userId, maximumPosition)
+  }
+
   markDefenseWin(userId: number) {
     if (!(userId in this.baseline)) return
     const current = this.movement[userId] ?? RankingMovement.STATIC

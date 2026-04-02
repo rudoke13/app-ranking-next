@@ -154,6 +154,8 @@ type DashboardData = {
       challengedTiebreak: number | null
       challengerWalkover: boolean
       challengedWalkover: boolean
+      challengerRetired: boolean
+      challengedRetired: boolean
     }
   }[]
 }
@@ -190,6 +192,7 @@ const formatDate = (value: string | null) => {
 
 const formatScore = (score: DashboardData["recentResults"][number]["score"]) => {
   if (score.challengerWalkover || score.challengedWalkover) return "W.O."
+  if (score.challengerRetired || score.challengedRetired) return "Desistencia"
   if (score.challengerGames === null || score.challengedGames === null) return "-"
   let base = `${score.challengerGames}/${score.challengedGames}`
   if (score.challengerTiebreak !== null && score.challengedTiebreak !== null) {
@@ -555,6 +558,18 @@ export default function DashboardCards() {
             played_at: playedAt,
             challenger_walkover: true,
           }
+        : resultType === "retired_challenger"
+        ? {
+            winner: "challenged",
+            played_at: playedAt,
+            challenger_retired: true,
+          }
+        : resultType === "retired_challenged"
+        ? {
+            winner: "challenger",
+            played_at: playedAt,
+            challenged_retired: true,
+          }
         : {
             double_walkover: true,
             played_at: playedAt,
@@ -793,6 +808,10 @@ export default function DashboardCards() {
               isPending &&
               (!currentRoundKey || challengeKey === currentRoundKey)
             const isOpen = resultOpenId === challenge.id
+            const woChallengerOptionLabel = `Vitoria de W.O. para ${challenge.challenger.name}`
+            const woChallengedOptionLabel = `Vitoria de W.O. para ${challenge.challenged.name}`
+            const retiredChallengerOptionLabel = `Desistencia para ${challenge.challenger.name}`
+            const retiredChallengedOptionLabel = `Desistencia para ${challenge.challenged.name}`
 
             return (
               <Card key={challenge.id} className="shadow-none">
@@ -875,10 +894,16 @@ export default function DashboardCards() {
                             <SelectContent>
                               <SelectItem value="score">Placar</SelectItem>
                               <SelectItem value="wo_challenger">
-                                W.O. para o desafiante
+                                {woChallengerOptionLabel}
                               </SelectItem>
                               <SelectItem value="wo_challenged">
-                                W.O. para o desafiado
+                                {woChallengedOptionLabel}
+                              </SelectItem>
+                              <SelectItem value="retired_challenger">
+                                {retiredChallengerOptionLabel}
+                              </SelectItem>
+                              <SelectItem value="retired_challenged">
+                                {retiredChallengedOptionLabel}
                               </SelectItem>
                               <SelectItem value="double_wo">W.O. duplo</SelectItem>
                             </SelectContent>

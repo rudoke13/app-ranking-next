@@ -162,6 +162,11 @@ export function atualizarRanking(
     challenged: string
     isAccess?: boolean
   }> = []
+  const defeatProtectionEntries: Array<{
+    userId: number
+    maximumPosition: number
+    baselinePosition: number
+  }> = []
   const normalizedEvents: Array<RankingRoundEvent & { playedAtValue: number; sourceIndex: number }> = []
   const seenChallenges = new Set<number>()
 
@@ -293,16 +298,39 @@ export function atualizarRanking(
       if (event.isAccess) {
         simulator.applyPenalty(challengerId, baseline.length, baseline.length)
       } else {
+        const maximumPosition = Math.min(
+          baseline.length,
+          challengerSnapshot + Math.max(1, distance)
+        )
         simulator.applyDefeat(
           challengerId,
           challengerSnapshot,
           Math.max(1, distance),
           baseline.length
         )
+        defeatProtectionEntries.push({
+          userId: challengerId,
+          maximumPosition,
+          baselinePosition: challengerBaseline,
+        })
       }
       simulator.markDefenseWin(challengedId)
     }
   }
+
+  defeatProtectionEntries
+    .sort((a, b) => {
+      if (a.maximumPosition === b.maximumPosition) {
+        if (a.baselinePosition === b.baselinePosition) {
+          return a.userId - b.userId
+        }
+        return a.baselinePosition - b.baselinePosition
+      }
+      return a.maximumPosition - b.maximumPosition
+    })
+    .forEach((entry) => {
+      simulator.enforceMaximumPosition(entry.userId, entry.maximumPosition)
+    })
 
   const rankingAtualizado: Array<Record<string, unknown>> = []
   const finalPositions: Record<string, number> = {}

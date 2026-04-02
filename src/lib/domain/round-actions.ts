@@ -2,6 +2,10 @@ import { monthKeyFromDate } from "@/lib/date"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import {
+  getBluePointEvaluation,
+  persistBluePointEvaluation,
+} from "@/lib/domain/blue-point"
+import {
   rankingConfig,
   getAccessThreshold,
   monthDiff,
@@ -18,14 +22,6 @@ import {
 } from "@/lib/domain/ranking-round-processor"
 
 const toMonthStart = (value: string) => new Date(`${value}-01T00:00:00`)
-const toMonthValueFromDate = (value: Date) => {
-  const monthKey = monthKeyFromDate(value)
-  if (Number.isNaN(monthKey.getTime())) return ""
-  const year = monthKey.getUTCFullYear()
-  const month = String(monthKey.getUTCMonth() + 1).padStart(2, "0")
-  return `${year}-${month}`
-}
-
 const monthRange = (monthStart: Date) => {
   const start = new Date(
     monthStart.getFullYear(),
@@ -258,182 +254,13 @@ const evaluateBluePoints = async (
   monthStart: Date,
   positions: Record<number, number>
 ) => {
-  const threshold = Math.max(
-    1,
-    rankingConfig.bluePointPolicy.consecutiveChallengesThreshold
-  )
-  const [members, ranking] = await Promise.all([
-    db.ranking_memberships.findMany({
-      where: { ranking_id: rankingId },
-      select: {
-        user_id: true,
-        position: true,
-        is_access_challenge: true,
-        is_suspended: true,
-        is_blue_point: true,
-      },
-    }),
-    db.rankings.findUnique({
-      where: { id: rankingId },
-      select: { slug: true },
-    }),
-  ])
-
-  const updateData: Array<{
-    userId: number
-    enabled: boolean
-    locked: boolean
-  }> = []
-
-  const accessLimit = getAccessThreshold(ranking?.slug) ?? null
-  const maxUp = rankingConfig.maxPositionsUp
-  const positionByUser = new Map<number, number>()
-  Object.entries(positions).forEach(([pos, userId]) => {
-    const id = Number(userId)
-    const position = Number(pos)
-    if (Number.isFinite(id) && Number.isFinite(position)) {
-      positionByUser.set(id, position)
-    }
+  const evaluation = await getBluePointEvaluation({
+    rankingId,
+    monthStart,
+    positionsByUser: positions,
   })
 
-  const { start, end } = monthRange(monthStart)
-  const monthChallenges = await db.challenges.findMany({
-    where: {
-      ranking_id: rankingId,
-      OR: [
-        {
-          status: "completed",
-          OR: [
-            {
-              played_at: { gte: start, lt: end },
-            },
-            {
-              played_at: null,
-              scheduled_for: { gte: start, lt: end },
-            },
-          ],
-        },
-        {
-          status: { in: ["scheduled", "accepted"] },
-          scheduled_for: { gte: start, lt: end },
-        },
-      ],
-    },
-    select: { challenger_id: true, challenged_id: true },
-  })
-
-  const hasChallenge = new Set<number>()
-  monthChallenges.forEach((challenge) => {
-    hasChallenge.add(challenge.challenger_id)
-    hasChallenge.add(challenge.challenged_id)
-  })
-
-  const roundRows = await db.rounds.findMany({
-    where: {
-      reference_month: { lte: monthKeyFromDate(monthStart) },
-      OR: [{ ranking_id: rankingId }, { ranking_id: null }],
-    },
-    select: { reference_month: true },
-    orderBy: { reference_month: "desc" },
-  })
-
-  const recentRoundMonthKeys: string[] = []
-  const seenRoundMonthKeys = new Set<string>()
-  for (const row of roundRows) {
-    const key = toMonthValueFromDate(row.reference_month)
-    if (!key) continue
-    if (seenRoundMonthKeys.has(key)) continue
-    seenRoundMonthKeys.add(key)
-    recentRoundMonthKeys.push(key)
-    if (recentRoundMonthKeys.length >= threshold) break
-  }
-
-  const challengedInRecentMonthsByUser = new Map<number, Set<string>>()
-  if (recentRoundMonthKeys.length >= threshold) {
-    const selectedMonthKeys = new Set(recentRoundMonthKeys)
-    const oldestMonthKey = recentRoundMonthKeys[recentRoundMonthKeys.length - 1]
-    const oldestMonthStart = toMonthStart(oldestMonthKey)
-
-    const relevantChallenges = await db.challenges.findMany({
-      where: {
-        ranking_id: rankingId,
-        status: { in: ["completed", "scheduled", "accepted"] },
-        OR: [
-          {
-            played_at: { gte: oldestMonthStart, lt: end },
-          },
-          {
-            played_at: null,
-            scheduled_for: { gte: oldestMonthStart, lt: end },
-          },
-        ],
-      },
-      select: {
-        challenged_id: true,
-        played_at: true,
-        scheduled_for: true,
-      },
-    })
-
-    for (const challenge of relevantChallenges) {
-      const refDate = challenge.played_at ?? challenge.scheduled_for
-      if (!refDate) continue
-      const monthKey = toMonthValueFromDate(refDate)
-      if (!monthKey) continue
-      if (!selectedMonthKeys.has(monthKey)) continue
-      const months = challengedInRecentMonthsByUser.get(challenge.challenged_id) ?? new Set<string>()
-      months.add(monthKey)
-      challengedInRecentMonthsByUser.set(challenge.challenged_id, months)
-    }
-  }
-
-  for (const member of members) {
-    const userId = member.user_id
-    const position =
-      positionByUser.get(userId) ?? member.position ?? positions[userId] ?? 0
-    const challengedConsecutive =
-      recentRoundMonthKeys.length >= threshold &&
-      recentRoundMonthKeys.every((monthKey) =>
-        challengedInRecentMonthsByUser.get(userId)?.has(monthKey)
-      )
-
-    let locked = false
-    if (
-      position > 1 &&
-      !member.is_suspended &&
-      !hasChallenge.has(userId)
-    ) {
-      locked = true
-      for (const target of members) {
-        if (target.user_id === userId) continue
-        if (target.is_suspended) continue
-        const targetPos =
-          positionByUser.get(target.user_id) ?? target.position ?? 0
-        if (targetPos <= 0) continue
-        const isAccess = Boolean(member.is_access_challenge)
-        if (isAccess) {
-          if (accessLimit && targetPos < accessLimit) continue
-        } else {
-          if (targetPos >= position) continue
-          if (position - targetPos > maxUp) continue
-        }
-        if (member.is_blue_point && target.is_blue_point) continue
-        if (hasChallenge.has(target.user_id)) continue
-        locked = false
-        break
-      }
-    }
-
-    const enabled = (position > 1 && challengedConsecutive) || locked
-    updateData.push({ userId, enabled, locked })
-  }
-
-  for (const item of updateData) {
-    await db.ranking_memberships.updateMany({
-      where: { ranking_id: rankingId, user_id: item.userId },
-      data: { is_blue_point: item.enabled, is_locked: item.locked },
-    })
-  }
+  await persistBluePointEvaluation(rankingId, evaluation.items)
 }
 
 const buildPositionsFromMembers = (

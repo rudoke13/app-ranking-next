@@ -20,6 +20,10 @@ type ChallengeResultSource = {
   challengedWalkover?: boolean | null
   challenger_walkover?: boolean | null
   challenged_walkover?: boolean | null
+  challengerRetired?: boolean | null
+  challengedRetired?: boolean | null
+  challenger_retired?: boolean | null
+  challenged_retired?: boolean | null
 }
 
 type ChallengeResultForUserSource = ChallengeResultSource & {
@@ -64,6 +68,14 @@ export function resolveChallengeWinner(
     source.challengedWalkover,
     source.challenged_walkover
   )
+  const challengerRetired = firstBoolean(
+    source.challengerRetired,
+    source.challenger_retired
+  )
+  const challengedRetired = firstBoolean(
+    source.challengedRetired,
+    source.challenged_retired
+  )
 
   if (challengerWalkover && challengedWalkover) {
     return null
@@ -72,6 +84,15 @@ export function resolveChallengeWinner(
     return "challenged"
   }
   if (challengedWalkover) {
+    return "challenger"
+  }
+  if (challengerRetired && challengedRetired) {
+    return null
+  }
+  if (challengerRetired) {
+    return "challenged"
+  }
+  if (challengedRetired) {
     return "challenger"
   }
 
@@ -111,7 +132,11 @@ export function hasChallengeResultEvidence(source: ChallengeResultSource): boole
     source.challengerWalkover,
     source.challenger_walkover,
     source.challengedWalkover,
-    source.challenged_walkover
+    source.challenged_walkover,
+    source.challengerRetired,
+    source.challenger_retired,
+    source.challengedRetired,
+    source.challenged_retired
   )
 }
 

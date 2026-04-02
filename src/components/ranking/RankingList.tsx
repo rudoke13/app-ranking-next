@@ -147,6 +147,8 @@ type ChallengeHistoryItem = {
   challengedGames: number | null
   challengerWalkover: boolean
   challengedWalkover: boolean
+  challengerRetired: boolean
+  challengedRetired: boolean
   challenger: {
     id: number
     name: string
@@ -242,6 +244,8 @@ const formatChallengeDateTime = (value?: string | null) => {
 const getChallengeScoreLabel = (challenge: ChallengeHistoryItem) => {
   if (challenge.challengerWalkover) return "W.O. (desafiante)"
   if (challenge.challengedWalkover) return "W.O. (desafiado)"
+  if (challenge.challengerRetired) return "Desistencia (desafiante)"
+  if (challenge.challengedRetired) return "Desistencia (desafiado)"
   if (
     challenge.challengerGames === null ||
     challenge.challengedGames === null

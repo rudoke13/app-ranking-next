@@ -793,6 +793,11 @@ export default function AdminUsuariosPage() {
           <div className="flex flex-wrap items-center gap-2">
             {viewerRole === "admin" ? (
               <Button asChild variant="outline">
+                <Link href="/admin/ponto-azul">Ponto azul</Link>
+              </Button>
+            ) : null}
+            {viewerRole === "admin" ? (
+              <Button asChild variant="outline">
                 <Link href="/admin/configuracoes">Configuracoes</Link>
               </Button>
             ) : null}

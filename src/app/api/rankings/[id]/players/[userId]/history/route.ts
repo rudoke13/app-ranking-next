@@ -262,6 +262,8 @@ export async function GET(
         challenged_games: true,
         challenger_walkover: true,
         challenged_walkover: true,
+        challenger_retired: true,
+        challenged_retired: true,
         users_challenges_challenger_idTousers: {
           select: {
             id: true,
@@ -313,6 +315,8 @@ export async function GET(
       challengedGames: number | null
       challengerWalkover: boolean
       challengedWalkover: boolean
+      challengerRetired: boolean
+      challengedRetired: boolean
       challenger: { id: number; name: string; avatarUrl: string | null }
       challenged: { id: number; name: string; avatarUrl: string | null }
     }>
@@ -334,6 +338,8 @@ export async function GET(
       challenged_games: challenge.challenged_games,
       challenger_walkover: challenge.challenger_walkover,
       challenged_walkover: challenge.challenged_walkover,
+      challenger_retired: challenge.challenger_retired,
+      challenged_retired: challenge.challenged_retired,
     })
     const winner = resolveChallengeWinner({
       winner: challenge.winner,
@@ -341,6 +347,8 @@ export async function GET(
       challenged_games: challenge.challenged_games,
       challenger_walkover: challenge.challenger_walkover,
       challenged_walkover: challenge.challenged_walkover,
+      challenger_retired: challenge.challenger_retired,
+      challenged_retired: challenge.challenged_retired,
     })
 
     itemsByMonth.get(monthValue)?.push({
@@ -353,6 +361,8 @@ export async function GET(
       challengedGames: challenge.challenged_games,
       challengerWalkover: Boolean(challenge.challenger_walkover),
       challengedWalkover: Boolean(challenge.challenged_walkover),
+      challengerRetired: Boolean(challenge.challenger_retired),
+      challengedRetired: Boolean(challenge.challenged_retired),
       challenger: {
         id: challenge.users_challenges_challenger_idTousers.id,
         name: formatName(
