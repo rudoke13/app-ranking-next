@@ -1,6 +1,7 @@
 import SectionTitle from "@/components/app/SectionTitle"
 import AvatarUploader from "@/components/profile/AvatarUploader"
 import ProfileForm from "@/components/profile/ProfileForm"
+import ProfileHistoryTabs from "@/components/profile/ProfileHistoryTabs"
 import RankingVisibilityToggle from "@/components/profile/RankingVisibilityToggle"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -33,6 +34,7 @@ export default async function PerfilPage() {
       ? db.ranking_memberships.findMany({
           where: { user_id: userId },
           select: {
+            position: true,
             rankings: {
               select: {
                 id: true,
@@ -66,9 +68,19 @@ export default async function PerfilPage() {
       const id = entry.rankings?.id
       const name = entry.rankings?.name?.trim() ?? ""
       if (!id || !name) return null
-      return { id, name }
+      return {
+        id,
+        name,
+        position:
+          typeof entry.position === "number" && Number.isFinite(entry.position)
+            ? entry.position
+            : null,
+      }
     })
-    .filter((entry): entry is { id: number; name: string } => Boolean(entry))
+    .filter(
+      (entry): entry is { id: number; name: string; position: number | null } =>
+        Boolean(entry)
+    )
   const linkedRankingSet = new Set(linkedRankingBadges.map((entry) => entry.id))
   const allowedVisibleRankings = isRestrictedToMembership
     ? activeRankings.filter(
@@ -168,6 +180,13 @@ export default async function PerfilPage() {
           birthDate: birthDateValue,
         }}
       />
+
+      {hasValidUserId && linkedRankingBadges.length ? (
+        <ProfileHistoryTabs
+          userId={userId}
+          rankings={linkedRankingBadges}
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { monthKeyFromDate } from "@/lib/date"
+import { formatMonthYearPt, monthKeyFromDate } from "@/lib/date"
 import { db } from "@/lib/db"
 import { Prisma } from "@prisma/client"
 import {
@@ -20,6 +20,11 @@ import {
   atualizarRanking,
   type RankingRoundEvent,
 } from "@/lib/domain/ranking-round-processor"
+import { RankingSimulator } from "@/lib/domain/ranking-simulator"
+import {
+  getAutomaticWalkoverPenaltiesForRound,
+  WALKOVER_PENALTY_POSITIONS,
+} from "@/lib/domain/walkover-penalty"
 
 const toMonthStart = (value: string) => new Date(`${value}-01T00:00:00`)
 const monthRange = (monthStart: Date) => {
@@ -280,6 +285,114 @@ const buildPositionsFromMembers = (
   return positions
 }
 
+const positionByUserFromPositions = (positions: BaselinePositions) => {
+  const map = new Map<number, number>()
+  Object.entries(positions).forEach(([position, userId]) => {
+    const normalizedPosition = Number(position)
+    const normalizedUserId = Number(userId)
+    if (
+      Number.isFinite(normalizedPosition) &&
+      normalizedPosition > 0 &&
+      Number.isFinite(normalizedUserId) &&
+      normalizedUserId > 0
+    ) {
+      map.set(normalizedUserId, normalizedPosition)
+    }
+  })
+  return map
+}
+
+const applyAutomaticPenalties = (
+  positions: BaselinePositions,
+  penalties: Array<{ userId: number; positionsDown: number }>
+) => {
+  if (!penalties.length || !Object.keys(positions).length) {
+    return {
+      positions,
+      applied: [] as Array<{
+        userId: number
+        previousPosition: number
+        newPosition: number
+        positionsDown: number
+      }>,
+    }
+  }
+
+  const memberCount = Object.keys(positions).length
+  const simulator = new RankingSimulator(positions)
+  const currentPositions = positionByUserFromPositions(positions)
+
+  const orderedPenalties = penalties
+    .map((penalty) => ({
+      ...penalty,
+      currentPosition:
+        currentPositions.get(penalty.userId) ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .filter((penalty) => penalty.currentPosition !== Number.MAX_SAFE_INTEGER)
+    .sort((a, b) => {
+      if (a.currentPosition === b.currentPosition) {
+        return a.userId - b.userId
+      }
+      return a.currentPosition - b.currentPosition
+    })
+
+  orderedPenalties.forEach((penalty) => {
+    simulator.applyPenalty(penalty.userId, penalty.positionsDown, memberCount)
+  })
+
+  const result = simulator.result()
+  const finalPositionsByUser = positionByUserFromPositions(result)
+
+  return {
+    positions: result,
+    applied: orderedPenalties.map((penalty) => ({
+      userId: penalty.userId,
+      previousPosition: penalty.currentPosition,
+      newPosition:
+        finalPositionsByUser.get(penalty.userId) ?? penalty.currentPosition,
+      positionsDown: penalty.positionsDown,
+    })),
+  }
+}
+
+const buildAutomaticPenaltyLogs = (
+  penalties: Array<{
+    userId: number
+    triggerMonths: [string, string]
+  }>,
+  appliedEntries: Array<{
+    userId: number
+    previousPosition: number
+    newPosition: number
+    positionsDown: number
+  }>,
+  membersById: Map<
+    number,
+    {
+      user_id: number
+      position: number | null
+      is_access_challenge: boolean
+      users: {
+        first_name: string | null
+        last_name: string | null
+        nickname: string | null
+      }
+    }
+  >
+) =>
+  penalties.map((penalty) => {
+    const applied = appliedEntries.find((entry) => entry.userId === penalty.userId)
+    const member = membersById.get(penalty.userId)
+    const fullName = `${member?.users?.first_name ?? ""} ${member?.users?.last_name ?? ""}`.trim()
+    const nickname = member?.users?.nickname?.trim() ?? ""
+    const playerName = nickname || fullName || `Jogador ${penalty.userId}`
+    const fromLabel = `${formatMonthYearPt(penalty.triggerMonths[0])} e ${formatMonthYearPt(
+      penalty.triggerMonths[1]
+    )}`
+    const newPosition = applied?.newPosition ?? applied?.previousPosition ?? "-"
+    return `${playerName} recebeu penalidade automatica de ${WALKOVER_PENALTY_POSITIONS} posicoes por 2 W.O. consecutivos (${fromLabel}); iniciara a proxima rodada na posicao ${newPosition}.`
+  })
+
 type SnapshotClient = Pick<typeof db, "ranking_snapshots">
 
 const storeEndSnapshot = async (
@@ -430,13 +543,28 @@ export async function closeRound(
         position: member.position ?? null,
       }))
     )
+    const manualAutomaticPenalties = await getAutomaticWalkoverPenaltiesForRound(
+      rankingId,
+      referenceMonth,
+      members.map((member) => member.user_id)
+    )
+    const manualPenaltyResult = applyAutomaticPenalties(
+      finalPositions,
+      manualAutomaticPenalties
+    )
+    const finalPositionsWithPenalties = manualPenaltyResult.positions
+    const manualAutomaticPenaltyLogs = buildAutomaticPenaltyLogs(
+      manualAutomaticPenalties,
+      manualPenaltyResult.applied,
+      membersById
+    )
 
     await db.$transaction(async (tx) => {
       if (persistMemberships) {
-        await applyMembershipPositions(tx, rankingId, finalPositions)
+        await applyMembershipPositions(tx, rankingId, finalPositionsWithPenalties)
       }
 
-      await storeEndSnapshot(tx, rankingId, monthStart, finalPositions)
+      await storeEndSnapshot(tx, rankingId, monthStart, finalPositionsWithPenalties)
 
       await tx.round_logs.deleteMany({
         where: {
@@ -445,13 +573,21 @@ export async function closeRound(
         },
       })
 
-      await tx.round_logs.create({
-        data: {
-          ranking_id: rankingId,
-          reference_month: monthKey,
-          line_no: 1,
-          message: "Ranking fechado com ordem manual.",
-        },
+      await tx.round_logs.createMany({
+        data: [
+          {
+            ranking_id: rankingId,
+            reference_month: monthKey,
+            line_no: 1,
+            message: "Ranking fechado com ordem manual.",
+          },
+          ...manualAutomaticPenaltyLogs.map((message, index) => ({
+            ranking_id: rankingId,
+            reference_month: monthKey,
+            line_no: index + 2,
+            message,
+          })),
+        ],
       })
 
       if (closeStatus) {
@@ -472,7 +608,7 @@ export async function closeRound(
         rankingId,
         monthStart,
         Object.fromEntries(
-          Object.entries(finalPositions).map(([pos, userId]) => [
+          Object.entries(finalPositionsWithPenalties).map(([pos, userId]) => [
             Number(userId),
             Number(pos),
           ])
@@ -481,9 +617,9 @@ export async function closeRound(
     }
 
     return {
-      log: ["Ranking fechado com ordem manual."],
+      log: ["Ranking fechado com ordem manual.", ...manualAutomaticPenaltyLogs],
       violations: [],
-      positions: finalPositions,
+      positions: finalPositionsWithPenalties,
       manualOverride: true,
     }
   }
@@ -616,12 +752,25 @@ export async function closeRound(
     }
   })
 
+  const automaticPenalties = await getAutomaticWalkoverPenaltiesForRound(
+    rankingId,
+    referenceMonth,
+    baselineRanking.map((row) => Number(row.id))
+  )
+  const penaltyResult = applyAutomaticPenalties(finalPositions, automaticPenalties)
+  const penalizedPositions = penaltyResult.positions
+  const automaticPenaltyLogs = buildAutomaticPenaltyLogs(
+    automaticPenalties,
+    penaltyResult.applied,
+    membersById
+  )
+
   await db.$transaction(async (tx) => {
     if (persistMemberships) {
-      await applyMembershipPositions(tx, rankingId, finalPositions)
+      await applyMembershipPositions(tx, rankingId, penalizedPositions)
     }
 
-    await storeEndSnapshot(tx, rankingId, monthStart, finalPositions)
+    await storeEndSnapshot(tx, rankingId, monthStart, penalizedPositions)
 
     await tx.round_logs.deleteMany({
       where: {
@@ -630,9 +779,10 @@ export async function closeRound(
       },
     })
 
-    if (resultado.logExplicativo.length) {
+    const logMessages = [...resultado.logExplicativo, ...automaticPenaltyLogs]
+    if (logMessages.length) {
       await tx.round_logs.createMany({
-        data: resultado.logExplicativo.map((message, index) => ({
+        data: logMessages.map((message, index) => ({
           ranking_id: rankingId,
           reference_month: monthKey,
           line_no: index + 1,
@@ -659,15 +809,18 @@ export async function closeRound(
       rankingId,
       monthStart,
       Object.fromEntries(
-        Object.entries(finalPositions).map(([pos, userId]) => [Number(userId), Number(pos)])
+        Object.entries(penalizedPositions).map(([pos, userId]) => [
+          Number(userId),
+          Number(pos),
+        ])
       )
     )
   }
 
   return {
-    log: resultado.logExplicativo,
+    log: [...resultado.logExplicativo, ...automaticPenaltyLogs],
     violations: ignoreViolations ? resultado.violacoes : [],
-    positions: finalPositions,
+    positions: penalizedPositions,
     manualOverride: false,
   }
 }

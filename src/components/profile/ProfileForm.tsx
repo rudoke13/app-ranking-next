@@ -28,11 +28,13 @@ type ProfileFormProps = {
 }
 
 export default function ProfileForm({ initialData }: ProfileFormProps) {
+  const [savedData, setSavedData] = useState<ProfileFormData>(initialData)
   const [form, setForm] = useState<ProfileFormData>(initialData)
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -87,137 +89,176 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
       return
     }
 
+    setSavedData(form)
     setMessage(data?.data?.message ?? "Perfil atualizado com sucesso.")
     setPassword("")
     setConfirm("")
+    setIsEditing(false)
     setIsSaving(false)
   }
 
-  return (
-    <div className="space-y-8">
-      <Card>
-        <CardHeader>
-          <CardTitle>Editar perfil</CardTitle>
-          <CardDescription>Atualize suas informacoes basicas.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="nome">Nome</Label>
-            <Input
-              id="nome"
-              value={form.firstName}
-              onChange={handleChange("firstName")}
-              placeholder="Rodolfo"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sobrenome">Sobrenome</Label>
-            <Input
-              id="sobrenome"
-              value={form.lastName}
-              onChange={handleChange("lastName")}
-              placeholder="Lelis"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="apelido">Apelido</Label>
-            <Input
-              id="apelido"
-              value={form.nickname}
-              onChange={handleChange("nickname")}
-              placeholder="Rodo"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">E-mail</Label>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange("email")}
-              placeholder="rodolfo@tcc.com.br"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="celular">Celular</Label>
-            <Input
-              id="celular"
-              value={form.phone}
-              onChange={handleChange("phone")}
-              placeholder="(11) 99999-0000"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="nascimento">Data de nascimento</Label>
-            <Input
-              id="nascimento"
-              type="date"
-              value={form.birthDate}
-              onChange={handleChange("birthDate")}
-            />
-          </div>
-        </CardContent>
-      </Card>
+  const handleStartEditing = () => {
+    setForm(savedData)
+    setPassword("")
+    setConfirm("")
+    setError(null)
+    setMessage(null)
+    setIsEditing(true)
+  }
 
+  const handleCancelEditing = () => {
+    setForm(savedData)
+    setPassword("")
+    setConfirm("")
+    setShowPassword(false)
+    setShowConfirm(false)
+    setError(null)
+    setIsEditing(false)
+  }
+
+  return (
+    <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle>Senha</CardTitle>
-          <CardDescription>Deixe em branco se nao quiser alterar.</CardDescription>
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle>Perfil</CardTitle>
+            <CardDescription>
+              {isEditing
+                ? "Atualize suas informacoes basicas."
+                : "Clique em editar para alterar seus dados."}
+            </CardDescription>
+          </div>
+          {!isEditing ? (
+            <Button type="button" variant="outline" onClick={handleStartEditing}>
+              Editar perfil
+            </Button>
+          ) : null}
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="nova-senha">Nova senha</Label>
-            <div className="relative">
-              <Input
-                id="nova-senha"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="pr-12"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowPassword((prev) => !prev)}
-                aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-              >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </Button>
+
+        {isEditing ? (
+          <CardContent className="space-y-8">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="nome">Nome</Label>
+                <Input
+                  id="nome"
+                  value={form.firstName}
+                  onChange={handleChange("firstName")}
+                  placeholder="Rodolfo"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sobrenome">Sobrenome</Label>
+                <Input
+                  id="sobrenome"
+                  value={form.lastName}
+                  onChange={handleChange("lastName")}
+                  placeholder="Lelis"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="apelido">Apelido</Label>
+                <Input
+                  id="apelido"
+                  value={form.nickname}
+                  onChange={handleChange("nickname")}
+                  placeholder="Rodo"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">E-mail</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={handleChange("email")}
+                  placeholder="rodolfo@tcc.com.br"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="celular">Celular</Label>
+                <Input
+                  id="celular"
+                  value={form.phone}
+                  onChange={handleChange("phone")}
+                  placeholder="(11) 99999-0000"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nascimento">Data de nascimento</Label>
+                <Input
+                  id="nascimento"
+                  type="date"
+                  value={form.birthDate}
+                  onChange={handleChange("birthDate")}
+                />
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirmar-senha">Confirmar senha</Label>
-            <div className="relative">
-              <Input
-                id="confirmar-senha"
-                type={showConfirm ? "text" : "password"}
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-                className="pr-12"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowConfirm((prev) => !prev)}
-                aria-label={showConfirm ? "Ocultar senha" : "Mostrar senha"}
-              >
-                {showConfirm ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </Button>
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold text-foreground">Senha</h3>
+                <p className="text-sm text-muted-foreground">
+                  Deixe em branco se nao quiser alterar.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="nova-senha">Nova senha</Label>
+                  <div className="relative">
+                    <Input
+                      id="nova-senha"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      className="pr-12"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmar-senha">Confirmar senha</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmar-senha"
+                      type={showConfirm ? "text" : "password"}
+                      value={confirm}
+                      onChange={(event) => setConfirm(event.target.value)}
+                      className="pr-12"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowConfirm((prev) => !prev)}
+                      aria-label={showConfirm ? "Ocultar senha" : "Mostrar senha"}
+                    >
+                      {showConfirm ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </CardContent>
+          </CardContent>
+        ) : null}
       </Card>
 
       <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center sm:justify-end">
@@ -231,21 +272,28 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
             {message}
           </p>
         ) : null}
-        <Button
-          type="button"
-          className="bg-success text-success-foreground hover:bg-success/90"
-          onClick={handleSave}
-          disabled={isSaving}
-        >
-          {isSaving ? (
-            <span className="inline-flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin" />
-              Salvando...
-            </span>
-          ) : (
-            "Salvar"
-          )}
-        </Button>
+        {isEditing ? (
+          <>
+            <Button type="button" variant="outline" onClick={handleCancelEditing}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="bg-success text-success-foreground hover:bg-success/90"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="size-4 animate-spin" />
+                  Salvando...
+                </span>
+              ) : (
+                "Salvar"
+              )}
+            </Button>
+          </>
+        ) : null}
       </div>
     </div>
   )

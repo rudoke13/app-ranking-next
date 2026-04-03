@@ -12,6 +12,7 @@ import {
   resolveChallengeWinner,
 } from "@/lib/challenges/result"
 import { canManageRanking } from "@/lib/domain/collaborator-access"
+import { getPlayerWalkoverPenaltyHistory } from "@/lib/domain/walkover-penalty"
 import { db } from "@/lib/db"
 
 const monthSchema = z.string().regex(/^\d{4}-\d{2}$/).optional()
@@ -241,7 +242,7 @@ export async function GET(
     )
   }
 
-  const [challenges, blueHistory] = await Promise.all([
+  const [challenges, blueHistory, walkoverPenalty] = await Promise.all([
     db.challenges.findMany({
       where: {
         ranking_id: rankingId,
@@ -297,6 +298,7 @@ export async function GET(
       },
       select: { month_key: true },
     }),
+    getPlayerWalkoverPenaltyHistory(rankingId, targetUserId, baseMonth),
   ])
 
   const bluePointMonths = new Set(
@@ -431,6 +433,7 @@ export async function GET(
         ),
         avatarUrl: targetMembership.users.avatarUrl ?? null,
       },
+      walkoverPenalty,
       months: monthsPayload,
     },
   })
