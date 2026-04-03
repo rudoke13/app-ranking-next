@@ -231,6 +231,12 @@ export async function GET(request: Request) {
             value,
             label: formatMonthYearPt(value),
           })),
+          lastUnusedBluePointMonth: item.lastUnusedBluePointMonth
+            ? {
+                value: item.lastUnusedBluePointMonth,
+                label: formatMonthYearPt(item.lastUnusedBluePointMonth),
+              }
+            : null,
           shouldBeBluePoint: item.enabled,
           currentBluePoint: item.currentBluePoint,
           locked: item.locked,

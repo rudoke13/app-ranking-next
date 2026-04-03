@@ -39,12 +39,17 @@ type BluePointPlayer = {
   totalMatchesInMonth: number
   recentChallengeCount: number
   recentChallengeMonths: MonthItem[]
+  lastUnusedBluePointMonth: MonthItem | null
   shouldBeBluePoint: boolean
   currentBluePoint: boolean
   locked: boolean
   hasChallengeInMonth: boolean
   challengedConsecutive: boolean
-  reason: "consecutive_challenges" | "no_reachable_opponent" | null
+  reason:
+    | "consecutive_challenges"
+    | "no_reachable_opponent"
+    | "unused_previous_blue_point"
+    | null
   isSuspended: boolean
   isAccessChallenge: boolean
   monthHistory: PlayerMonthHistory[]
@@ -85,6 +90,13 @@ const reasonLabel = (
 
   if (player.reason === "no_reachable_opponent") {
     return "Vai virar ponto azul porque nao tem adversario valido disponivel."
+  }
+
+  if (player.reason === "unused_previous_blue_point") {
+    if (player.lastUnusedBluePointMonth) {
+      return `Nao vai ser ponto azul porque teve o beneficio em ${player.lastUnusedBluePointMonth.label} e nao usou. A regra reiniciou a partir desse mes.`
+    }
+    return "Nao vai ser ponto azul porque teve o beneficio e nao usou. A regra reiniciou."
   }
 
   return "Ainda nao atende a regra atual do ponto azul."
@@ -192,7 +204,9 @@ export default function BluePointHistoryPage() {
               <span className="font-semibold text-foreground">
                 sem adversario valido
               </span>{" "}
-              para desafiar no periodo aberto. O numero 1 nunca entra nessa regra.
+              para desafiar no periodo aberto. Se ele ganhar o beneficio e nao usar
+              no mes seguinte, a contagem zera e ele precisa recomecar a sequencia.
+              O numero 1 nunca entra nessa regra.
             </p>
           </div>
         </CardContent>
@@ -375,6 +389,11 @@ export default function BluePointHistoryPage() {
                                     Meses seguidos desafiado
                                   </Badge>
                                 ) : null}
+                                {player.reason === "unused_previous_blue_point" ? (
+                                  <Badge className="border-rose-200 bg-rose-50 text-rose-700">
+                                    Regra reiniciada
+                                  </Badge>
+                                ) : null}
                                 {player.isAccessChallenge ? (
                                   <Badge variant="outline">Desafio de acesso</Badge>
                                 ) : null}
@@ -433,6 +452,11 @@ export default function BluePointHistoryPage() {
                                 Sem desafios recebidos na janela atual
                               </Badge>
                             )}
+                            {player.lastUnusedBluePointMonth ? (
+                              <Badge variant="outline" className="bg-transparent">
+                                Beneficio nao usado em {player.lastUnusedBluePointMonth.label}
+                              </Badge>
+                            ) : null}
                             {!player.hasChallengeInMonth ? (
                               <Badge variant="outline" className="bg-transparent">
                                 Ainda sem desafio no mes atual

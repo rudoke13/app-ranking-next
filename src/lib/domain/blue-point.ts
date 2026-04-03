@@ -99,7 +99,7 @@ const resolveSnapshotPositions = async (
 const resolveRecentReferenceMonthKeys = async (
   rankingId: number,
   monthStart: Date,
-  threshold: number
+  limit: number
 ) => {
   const currentMonthKey = monthKeyFromDate(monthStart)
 
@@ -136,12 +136,13 @@ const resolveRecentReferenceMonthKeys = async (
 
   return Array.from(monthKeys)
     .sort((left, right) => right.localeCompare(left))
-    .slice(0, threshold)
+    .slice(0, limit)
 }
 
 export type BluePointReason =
   | "consecutive_challenges"
   | "no_reachable_opponent"
+  | "unused_previous_blue_point"
   | null
 
 export type BluePointEvaluationItem = {
@@ -155,6 +156,7 @@ export type BluePointEvaluationItem = {
   challengedConsecutive: boolean
   recentChallengeMonths: string[]
   recentChallengeCount: number
+  lastUnusedBluePointMonth: string | null
   challengedCountInMonth: number
   totalMatchesInMonth: number
   hasChallengeInMonth: boolean
@@ -170,6 +172,91 @@ export type BluePointEvaluationResult = {
   items: BluePointEvaluationItem[]
 }
 
+type MonthRoundWindow = {
+  monthKey: string
+  blueStart: Date
+  blueEnd: Date
+}
+
+type BluePointConsecutiveState = {
+  count: number
+  months: string[]
+  lastUnusedBluePointMonth: string | null
+}
+
+const buildFallbackMonthWindow = (monthKey: string): MonthRoundWindow => {
+  const monthStart = toMonthStart(monthKey)
+  const blueStart = new Date(monthStart)
+  blueStart.setHours(7, 0, 0, 0)
+  const blueEnd = new Date(blueStart)
+  blueEnd.setHours(blueEnd.getHours() + 24)
+
+  return {
+    monthKey,
+    blueStart,
+    blueEnd,
+  }
+}
+
+const resolveMonthRoundWindows = async (
+  rankingId: number,
+  monthKeys: string[]
+) => {
+  if (!monthKeys.length) return new Map<string, MonthRoundWindow>()
+
+  const monthDates = monthKeys
+    .map((value) => monthKeyFromDate(toMonthStart(value)))
+    .filter((value) => !Number.isNaN(value.getTime()))
+
+  const rows = await db.rounds.findMany({
+    where: {
+      reference_month: { in: monthDates },
+      OR: [{ ranking_id: rankingId }, { ranking_id: null }],
+    },
+    select: {
+      ranking_id: true,
+      reference_month: true,
+      blue_point_opens_at: true,
+      blue_point_closes_at: true,
+      open_challenges_at: true,
+    },
+    orderBy: [{ reference_month: "desc" }, { id: "desc" }],
+  })
+
+  const windows = new Map<string, MonthRoundWindow>()
+
+  for (const row of rows) {
+    const monthKey = toMonthValueFromDate(row.reference_month)
+    if (!monthKey) continue
+
+    const existing = windows.get(monthKey)
+    const isRankingSpecific = row.ranking_id === rankingId
+    if (existing && !isRankingSpecific) continue
+
+    const fallback = buildFallbackMonthWindow(monthKey)
+    const blueStart = row.blue_point_opens_at
+      ? new Date(row.blue_point_opens_at)
+      : fallback.blueStart
+    const blueEndSource =
+      row.blue_point_closes_at ?? row.open_challenges_at ?? fallback.blueEnd
+    const blueEnd = new Date(blueEndSource)
+
+    windows.set(monthKey, {
+      monthKey,
+      blueStart,
+      blueEnd: blueEnd >= blueStart ? blueEnd : blueStart,
+    })
+  }
+
+  for (const monthKey of monthKeys) {
+    if (!windows.has(monthKey)) {
+      windows.set(monthKey, buildFallbackMonthWindow(monthKey))
+    }
+  }
+
+  return windows
+}
+
 export async function getBluePointEvaluation({
   rankingId,
   monthStart,
@@ -183,6 +270,7 @@ export async function getBluePointEvaluation({
     1,
     rankingConfig.bluePointPolicy.consecutiveChallengesThreshold
   )
+  const historyLimit = Math.max(threshold + 4, 8)
 
   const [members, ranking, snapshotPositions] = await Promise.all([
     db.ranking_memberships.findMany({
@@ -276,18 +364,24 @@ export async function getBluePointEvaluation({
     )
   }
 
-  const recentMonthKeys = await resolveRecentReferenceMonthKeys(
+  const allRecentMonthKeys = await resolveRecentReferenceMonthKeys(
     rankingId,
     monthStart,
-    threshold
+    historyLimit
   )
+  const recentMonthKeys = allRecentMonthKeys.slice(0, threshold)
 
-  const challengedInRecentMonthsByUser = new Map<number, Set<string>>()
+  const challengedCountInRecentMonthsByUser = new Map<number, Map<string, number>>()
+  const bluePointUsedInMonthByUser = new Map<number, Set<string>>()
 
-  if (recentMonthKeys.length >= threshold) {
-    const selectedMonthKeys = new Set(recentMonthKeys)
-    const oldestMonthKey = recentMonthKeys[recentMonthKeys.length - 1]
+  if (allRecentMonthKeys.length) {
+    const selectedMonthKeys = new Set(allRecentMonthKeys)
+    const oldestMonthKey = allRecentMonthKeys[allRecentMonthKeys.length - 1]
     const oldestMonthStart = toMonthStart(oldestMonthKey)
+    const monthWindows = await resolveMonthRoundWindows(
+      rankingId,
+      allRecentMonthKeys
+    )
 
     const relevantChallenges = await db.challenges.findMany({
       where: {
@@ -304,9 +398,11 @@ export async function getBluePointEvaluation({
         ],
       },
       select: {
+        challenger_id: true,
         challenged_id: true,
         played_at: true,
         scheduled_for: true,
+        created_at: true,
       },
     })
 
@@ -315,26 +411,96 @@ export async function getBluePointEvaluation({
       if (!refDate) continue
       const monthKey = toMonthValueFromDate(refDate)
       if (!monthKey || !selectedMonthKeys.has(monthKey)) continue
-      const months =
-        challengedInRecentMonthsByUser.get(challenge.challenged_id) ??
-        new Set<string>()
-      months.add(monthKey)
-      challengedInRecentMonthsByUser.set(challenge.challenged_id, months)
+      const challengedMonths =
+        challengedCountInRecentMonthsByUser.get(challenge.challenged_id) ??
+        new Map<string, number>()
+      challengedMonths.set(
+        monthKey,
+        (challengedMonths.get(monthKey) ?? 0) + 1
+      )
+      challengedCountInRecentMonthsByUser.set(
+        challenge.challenged_id,
+        challengedMonths
+      )
+
+      const createdAt =
+        challenge.created_at ?? challenge.scheduled_for ?? challenge.played_at
+      const monthWindow = monthWindows.get(monthKey)
+      if (
+        createdAt &&
+        monthWindow &&
+        createdAt >= monthWindow.blueStart &&
+        createdAt < monthWindow.blueEnd
+      ) {
+        const usedMonths =
+          bluePointUsedInMonthByUser.get(challenge.challenger_id) ??
+          new Set<string>()
+        usedMonths.add(monthKey)
+        bluePointUsedInMonthByUser.set(challenge.challenger_id, usedMonths)
+      }
+    }
+  }
+
+  const chronologicalMonthKeys = [...allRecentMonthKeys].sort((left, right) =>
+    left.localeCompare(right)
+  )
+  const consecutiveStateByUser = new Map<number, BluePointConsecutiveState>()
+
+  for (const member of members) {
+    consecutiveStateByUser.set(member.user_id, {
+      count: 0,
+      months: [],
+      lastUnusedBluePointMonth: null,
+    })
+  }
+
+  for (const monthKey of chronologicalMonthKeys) {
+    for (const member of members) {
+      const state =
+        consecutiveStateByUser.get(member.user_id) ?? {
+          count: 0,
+          months: [],
+          lastUnusedBluePointMonth: null,
+        }
+      const challengedTimes =
+        challengedCountInRecentMonthsByUser
+          .get(member.user_id)
+          ?.get(monthKey) ?? 0
+      const usedBluePointBenefit =
+        bluePointUsedInMonthByUser.get(member.user_id)?.has(monthKey) ?? false
+      const hadBluePointBenefit = state.count >= threshold
+
+      if (hadBluePointBenefit && !usedBluePointBenefit) {
+        state.count = 0
+        state.months = []
+        state.lastUnusedBluePointMonth = monthKey
+        consecutiveStateByUser.set(member.user_id, state)
+        continue
+      }
+
+      if (challengedTimes > 0) {
+        state.count += 1
+        state.months = [...state.months, monthKey]
+      } else {
+        state.count = 0
+        state.months = []
+      }
+
+      consecutiveStateByUser.set(member.user_id, state)
     }
   }
 
   const items = members.map((member) => {
     const userId = member.user_id
     const position = positionByUser.get(userId) ?? member.position ?? 0
-    const recentChallengeMonths = Array.from(
-      challengedInRecentMonthsByUser.get(userId) ?? []
-    ).sort()
-    const recentChallengeCount = recentChallengeMonths.length
-    const challengedConsecutive =
-      recentMonthKeys.length >= threshold &&
-      recentMonthKeys.every((monthKey) =>
-        challengedInRecentMonthsByUser.get(userId)?.has(monthKey)
-      )
+    const consecutiveState = consecutiveStateByUser.get(userId) ?? {
+      count: 0,
+      months: [],
+      lastUnusedBluePointMonth: null,
+    }
+    const challengedConsecutive = consecutiveState.count >= threshold
+    const recentChallengeMonths = consecutiveState.months.slice(-threshold)
+    const recentChallengeCount = Math.min(consecutiveState.count, threshold)
 
     let locked = false
     if (position > 1 && !member.is_suspended && !hasChallenge.has(userId)) {
@@ -365,6 +531,8 @@ export async function getBluePointEvaluation({
       ? "no_reachable_opponent"
       : challengedConsecutive
       ? "consecutive_challenges"
+      : consecutiveState.lastUnusedBluePointMonth
+      ? "unused_previous_blue_point"
       : null
     const normalizedCurrentBluePoint =
       position > 1 ? Boolean(member.is_blue_point) : false
@@ -386,6 +554,7 @@ export async function getBluePointEvaluation({
       challengedConsecutive,
       recentChallengeMonths,
       recentChallengeCount,
+      lastUnusedBluePointMonth: consecutiveState.lastUnusedBluePointMonth,
       challengedCountInMonth: challengedCountInMonth.get(userId) ?? 0,
       totalMatchesInMonth: totalMatchesInMonth.get(userId) ?? 0,
       hasChallengeInMonth: hasChallenge.has(userId),
