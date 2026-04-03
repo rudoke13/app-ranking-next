@@ -59,11 +59,25 @@ type WalkoverPenaltyMonth = {
   penaltyForNextRound: boolean
 }
 
+type BluePointMonth = {
+  month: { value: string; label: string }
+  challengedCount: number
+  totalMatches: number
+  wasBluePoint: boolean
+}
+
 type PlayerHistoryResponse = {
   player: {
     userId: number
     name: string
     avatarUrl: string | null
+  }
+  bluePoint: {
+    currentBluePoint: boolean
+    bluePointMonthsCount: number
+    challengedCountInMonth: number
+    totalMatchesInMonth: number
+    monthHistory: BluePointMonth[]
   }
   walkoverPenalty: {
     triggerStreak: number
@@ -311,6 +325,83 @@ export default function ProfileHistoryTabs({
                               : "neutral"
                           }
                         />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          Regra de ponto azul
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Acompanhe em quais meses voce foi ponto azul e quantas
+                          vezes foi desafiado em cada rodada.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <StatPill
+                          label={
+                            data.bluePoint.currentBluePoint
+                              ? "Foi ponto azul neste mes"
+                              : "Nao foi ponto azul neste mes"
+                          }
+                          tone={
+                            data.bluePoint.currentBluePoint ? "info" : "neutral"
+                          }
+                        />
+                        <StatPill
+                          label={`Meses como ponto azul: ${data.bluePoint.bluePointMonthsCount}`}
+                          tone={data.bluePoint.bluePointMonthsCount > 0 ? "info" : "neutral"}
+                        />
+                        <StatPill
+                          label={`Desafiado no mes: ${data.bluePoint.challengedCountInMonth}x`}
+                          tone={
+                            data.bluePoint.challengedCountInMonth > 0
+                              ? "warning"
+                              : "neutral"
+                          }
+                        />
+                        <StatPill
+                          label={`Jogos no mes: ${data.bluePoint.totalMatchesInMonth}`}
+                          tone="neutral"
+                        />
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {data.bluePoint.monthHistory.map((month) => (
+                          <Card
+                            key={`${ranking.id}-blue-point-history-${month.month.value}`}
+                            className="gap-3 py-4 shadow-none"
+                          >
+                            <CardHeader className="space-y-2 px-4 pb-0">
+                              <CardTitle className="text-sm">
+                                {month.month.label}
+                              </CardTitle>
+                              <div className="flex flex-wrap gap-2">
+                                <StatPill
+                                  label={`Desafiado ${month.challengedCount}x`}
+                                  tone={
+                                    month.challengedCount > 0 ? "warning" : "neutral"
+                                  }
+                                  className="text-xs"
+                                />
+                                <StatPill
+                                  label={`Jogos ${month.totalMatches}`}
+                                  tone="neutral"
+                                  className="text-xs"
+                                />
+                                <StatPill
+                                  label={
+                                    month.wasBluePoint
+                                      ? "Foi ponto azul"
+                                      : "Nao foi ponto azul"
+                                  }
+                                  tone={month.wasBluePoint ? "info" : "neutral"}
+                                  className="text-xs"
+                                />
+                              </div>
+                            </CardHeader>
+                          </Card>
+                        ))}
                       </div>
                     </div>
 

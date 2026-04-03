@@ -59,6 +59,9 @@ const formatName = (
   return full || "Jogador"
 }
 
+const resolveChallengeMonthValue = (scheduledFor: Date, playedAt?: Date | null) =>
+  monthValueFromDate(playedAt ?? scheduledFor)
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string; userId: string }> }
@@ -257,6 +260,8 @@ export async function GET(
         id: true,
         status: true,
         winner: true,
+        challenger_id: true,
+        challenged_id: true,
         scheduled_for: true,
         played_at: true,
         challenger_games: true,
@@ -323,14 +328,37 @@ export async function GET(
       challenged: { id: number; name: string; avatarUrl: string | null }
     }>
   >()
+  const challengedCountByMonth = new Map<string, number>()
+  const totalMatchesByMonth = new Map<string, number>()
 
   for (const value of months) {
     itemsByMonth.set(value, [])
   }
 
   for (const challenge of challenges) {
-    const monthValue = monthValueFromDate(challenge.scheduled_for)
+    const monthValue = resolveChallengeMonthValue(
+      challenge.scheduled_for,
+      challenge.played_at
+    )
     if (!itemsByMonth.has(monthValue)) continue
+
+    if (challenge.challenger_id === targetUserId) {
+      totalMatchesByMonth.set(
+        monthValue,
+        (totalMatchesByMonth.get(monthValue) ?? 0) + 1
+      )
+    }
+
+    if (challenge.challenged_id === targetUserId) {
+      totalMatchesByMonth.set(
+        monthValue,
+        (totalMatchesByMonth.get(monthValue) ?? 0) + 1
+      )
+      challengedCountByMonth.set(
+        monthValue,
+        (challengedCountByMonth.get(monthValue) ?? 0) + 1
+      )
+    }
 
     const status = resolveChallengeStatus({
       status: challenge.status,
@@ -421,6 +449,26 @@ export async function GET(
     }
   })
 
+  const bluePointMonthHistory = months.map((value) => ({
+    month: { value, label: formatMonthYearPt(value) },
+    challengedCount: challengedCountByMonth.get(value) ?? 0,
+    totalMatches: totalMatchesByMonth.get(value) ?? 0,
+    wasBluePoint:
+      value === baseMonth
+        ? Boolean(targetMembership.is_blue_point) || bluePointMonths.has(value)
+        : bluePointMonths.has(value),
+  }))
+
+  const bluePoint = {
+    currentBluePoint:
+      Boolean(targetMembership.is_blue_point) || bluePointMonths.has(baseMonth),
+    bluePointMonthsCount: bluePointMonthHistory.filter((item) => item.wasBluePoint)
+      .length,
+    challengedCountInMonth: challengedCountByMonth.get(baseMonth) ?? 0,
+    totalMatchesInMonth: totalMatchesByMonth.get(baseMonth) ?? 0,
+    monthHistory: bluePointMonthHistory,
+  }
+
   return jsonResponse({
     ok: true,
     data: {
@@ -433,6 +481,7 @@ export async function GET(
         ),
         avatarUrl: targetMembership.users.avatarUrl ?? null,
       },
+      bluePoint,
       walkoverPenalty,
       months: monthsPayload,
     },
