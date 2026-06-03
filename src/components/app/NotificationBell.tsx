@@ -114,7 +114,7 @@ export default function NotificationBell() {
             aria-hidden
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-card shadow-lg">
+          <div className="fixed inset-x-2 top-17 z-50 overflow-hidden rounded-xl border bg-card shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96">
             <div className="flex items-center justify-between border-b px-4 py-2.5">
               <p className="text-sm font-semibold text-foreground">
                 Notificacoes
@@ -130,7 +130,7 @@ export default function NotificationBell() {
               ) : null}
             </div>
 
-            <div className="max-h-[70vh] overflow-y-auto">
+            <div className="max-h-[60vh] overflow-y-auto sm:max-h-[70vh]">
               {items.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted-foreground">
                   Nenhuma notificacao por aqui.

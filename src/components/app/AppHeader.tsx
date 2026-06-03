@@ -42,7 +42,7 @@ export default function AppHeader({
         <Link
           href="/dashboard"
           prefetch
-          className="flex items-center gap-3 text-base font-semibold tracking-tight text-primary sm:text-lg"
+          className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-primary sm:gap-3 sm:text-lg"
         >
           <UserAvatar
             name={appName}
@@ -53,9 +53,9 @@ export default function AppHeader({
             fallbackLabel={logoLabel}
             className="text-sm sm:text-base"
           />
-          <span>{appName}</span>
+          <span className="truncate">{appName}</span>
         </Link>
-        <div className="flex items-center gap-3 text-xs sm:text-sm">
+        <div className="flex shrink-0 items-center gap-1 text-xs sm:gap-3 sm:text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
             <UserAvatar
               name={name}
@@ -63,13 +63,13 @@ export default function AppHeader({
               size={32}
               fallbackLabel={role === "admin" ? "TCC" : undefined}
             />
-            <span>
+            <span className="hidden sm:inline">
               Olá, <span className="font-semibold text-foreground">{name}</span>
             </span>
             {role === "admin" || role === "collaborator" ? (
               <Badge
                 variant="outline"
-                className="border-primary/30 bg-primary/10 text-primary"
+                className="hidden border-primary/30 bg-primary/10 text-primary sm:inline-flex"
               >
                 {roleLabel[role]}
               </Badge>
