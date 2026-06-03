@@ -1130,26 +1130,39 @@ export default function RankingList() {
     return Number.isNaN(parsed) ? null : parsed
   }
 
-  const phase = playersData?.challengeWindow.phase
   const blueStartAt = parseTime(playersData?.challengeWindow.blueStart)
+  const blueEndAt = parseTime(playersData?.challengeWindow.blueEnd)
   const openStartAt = parseTime(playersData?.challengeWindow.openStart)
 
+  // Conta regressiva resiliente: derivada dos horarios absolutos da janela +
+  // relogio do cliente (phaseNow), e nao da fase calculada no servidor — que
+  // fica estagnada ate um novo fetch. O alvo do cronometro e o proximo momento
+  // em que ESTE jogador podera desafiar (varia se ele tem ou nao ponto azul).
   const countdownInfo = useMemo(() => {
     if (!playersData) return { deadline: null as number | null, label: "" }
-    if (phase === "blue" && !viewerIsBlue) {
-      return { deadline: openStartAt, label: "Desafios livres em" }
-    }
-    if (phase === "waiting_open") {
-      return { deadline: openStartAt, label: "Desafios livres em" }
-    }
-    if (phase === "before" || phase === "waiting_blue") {
-      if (viewerIsBlue) {
+    const now = phaseNow
+    if (viewerIsBlue) {
+      // Antes da janela de ponto azul: conta para a abertura do ponto azul.
+      if (blueStartAt && now < blueStartAt) {
         return { deadline: blueStartAt, label: "Ponto azul em" }
       }
+      // Dentro da janela de ponto azul: ja pode desafiar, sem cronometro.
+      const blueEnd = blueEndAt ?? openStartAt
+      if (blueEnd && now < blueEnd) {
+        return { deadline: null as number | null, label: "" }
+      }
+      // Intervalo entre o fim do azul e a abertura dos desafios livres.
+      if (openStartAt && now < openStartAt) {
+        return { deadline: openStartAt, label: "Desafios livres em" }
+      }
+      return { deadline: null as number | null, label: "" }
+    }
+    // Sem ponto azul: so desafia a partir da abertura dos desafios livres.
+    if (openStartAt && now < openStartAt) {
       return { deadline: openStartAt, label: "Desafios livres em" }
     }
     return { deadline: null as number | null, label: "" }
-  }, [playersData, phase, viewerIsBlue, blueStartAt, openStartAt])
+  }, [playersData, phaseNow, viewerIsBlue, blueStartAt, blueEndAt, openStartAt])
 
   const shouldTrackCountdown =
     Boolean(countdownInfo.deadline) &&
@@ -1386,6 +1399,30 @@ export default function RankingList() {
     setPlayersData(response.data)
     setLoadingPlayers(false)
   }, [adminMonth, redirectToLogin, selectedId])
+
+  // Reconcilia com o servidor uma unica vez quando a fase da janela vira (ex.:
+  // o cronometro zera e os desafios abrem). Substitui o polling agressivo
+  // anterior, que causava "salto" de tela ao zerar o cronometro: aqui ha no
+  // maximo um refetch por troca de fase, e nenhum enquanto a fase nao muda.
+  const lastSyncedPhaseRef = useRef<string | null>(null)
+  useEffect(() => {
+    const data = playersDataRef.current
+    if (!data) return
+    const nextKey = `${data.ranking.id}:${effectivePhase}`
+    const previousKey = lastSyncedPhaseRef.current
+    lastSyncedPhaseRef.current = nextKey
+
+    if (previousKey === null) return
+    const [previousRanking, previousPhase] = previousKey.split(":")
+    // Troca de categoria apenas re-sincroniza a referencia, sem refetch.
+    if (previousRanking !== String(data.ranking.id)) return
+    if (previousPhase === effectivePhase) return
+
+    const monthToRefresh = adminMonth || data.month?.value || undefined
+    refreshPlayers(data.ranking.id, monthToRefresh, {
+      bypassCache: true,
+    }).catch(() => undefined)
+  }, [effectivePhase, adminMonth, refreshPlayers])
 
   const openEditModal = useCallback((player: PlayerItem) => {
     if (!canManage) return
@@ -1745,10 +1782,13 @@ export default function RankingList() {
         rangeAllowed &&
         !player.isSuspended &&
         !isSelf
+      // Se ESTE jogador ja pode desafiar agora (fase liberada + tipo permitido
+      // para o perfil dele). Durante a janela exclusiva de ponto azul, quem nao
+      // tem ponto azul ainda nao pode — e por isso deve ver o cronometro.
+      const viewerCanChallengeNow = clientCanChallenge && typeAllowed
       const canChallenge =
         showChallengeButton &&
-        clientCanChallenge &&
-        typeAllowed &&
+        viewerCanChallengeNow &&
         !viewerHasChallenge &&
         !targetHasChallenge
       const challengeDisabled = showChallengeButton && !canChallenge
@@ -1757,7 +1797,7 @@ export default function RankingList() {
         showChallengeButton &&
         !viewerHasChallenge &&
         !targetHasChallenge &&
-        !clientCanChallenge
+        !viewerCanChallengeNow
       const baseRowTone =
         index % 2 === 0
           ? "bg-sky-50/80 dark:bg-slate-900/60"

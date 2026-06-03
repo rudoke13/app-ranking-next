@@ -26,6 +26,7 @@ const membershipSchema = z.object({
   is_suspended: z.boolean().optional(),
   license_position: z.number().int().min(1).optional().nullable(),
   position: z.number().int().min(1).optional().nullable(),
+  remove: z.boolean().optional(),
 })
 
 const updateSchema = z.object({
@@ -518,6 +519,7 @@ export async function PATCH(
         position: number | null
         license_position: number | null
       }
+      let removedMembership: { id: number; ranking_id: number } | null = null
 
       const shouldHandleMembership =
         Boolean(membershipInput) &&
@@ -661,6 +663,48 @@ export async function PATCH(
         }
       }
 
+      const removeMembershipIntent = membershipInput?.remove === true
+      if (removeMembershipIntent && membershipInput) {
+        const membership = await tx.ranking_memberships.findFirst({
+          where: {
+            user_id: userId,
+            ...(membershipInput.id
+              ? { id: membershipInput.id }
+              : membershipInput.ranking_id
+              ? { ranking_id: membershipInput.ranking_id }
+              : {}),
+          },
+        })
+
+        if (!membership) {
+          throw new Error("membership_not_found")
+        }
+
+        // Recompacta as posicoes dos jogadores ativos que estavam abaixo do
+        // removido, evitando "buracos" na ordem do ranking.
+        if (
+          !membership.is_suspended &&
+          membership.position &&
+          membership.position > 0
+        ) {
+          await tx.ranking_memberships.updateMany({
+            where: {
+              ranking_id: membership.ranking_id,
+              NOT: { is_suspended: true },
+              id: { not: membership.id },
+              position: { gt: membership.position },
+            },
+            data: { position: { decrement: 1 } },
+          })
+        }
+
+        await tx.ranking_memberships.delete({ where: { id: membership.id } })
+        removedMembership = {
+          id: membership.id,
+          ranking_id: membership.ranking_id,
+        }
+      }
+
       if (uniquePlayerRankingIds !== null) {
         const currentMemberships = await tx.ranking_memberships.findMany({
           where: { user_id: userId },
@@ -773,7 +817,7 @@ export async function PATCH(
         })
       }
 
-      return { updatedUser, updatedMembership }
+      return { updatedUser, updatedMembership, removedMembership }
     })
 
     return NextResponse.json({
@@ -793,6 +837,8 @@ export async function PATCH(
               license_position: result.updatedMembership.license_position ?? null,
             }
           : null,
+        removed: Boolean(result.removedMembership),
+        removedMembershipId: result.removedMembership?.id ?? null,
       },
     })
   } catch (error) {

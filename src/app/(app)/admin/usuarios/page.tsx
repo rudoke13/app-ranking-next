@@ -622,6 +622,36 @@ export default function AdminUsuariosPage() {
     loadUsers()
   }
 
+  const handleRemoveMembership = async (
+    userId: number,
+    membership: Membership
+  ) => {
+    const confirmed = window.confirm(
+      `Remover o jogador da categoria "${membership.rankingName}"? ` +
+        "Ele sai desta categoria e as posicoes sao reorganizadas. " +
+        "O cadastro do jogador e o historico nao sao apagados."
+    )
+    if (!confirmed) return
+
+    setSaving(true)
+    setActionError(null)
+    const response = await apiPatch(`/api/admin/users/${userId}`, {
+      membership: {
+        id: membership.id,
+        remove: true,
+      },
+    })
+
+    if (!response.ok) {
+      setActionError(response.message)
+      setSaving(false)
+      return
+    }
+
+    setSaving(false)
+    loadUsers()
+  }
+
   const getCurrentMonthKey = () => {
     const now = new Date()
     const year = now.getFullYear()
@@ -1701,6 +1731,16 @@ export default function AdminUsuariosPage() {
                                   {membership.isSuspended
                                     ? "Reativar"
                                     : "Colocar em licenca"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() =>
+                                    handleRemoveMembership(user.id, membership)
+                                  }
+                                  disabled={saving}
+                                >
+                                  Remover do ranking
                                 </Button>
                                 {viewerRole === "admin" ? (
                                   <>
