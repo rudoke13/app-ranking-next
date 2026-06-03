@@ -1,3 +1,4 @@
+import DialogProvider from "@/components/app/DialogProvider"
 import SessionGate from "@/components/app/SessionGate"
 
 export default function AppLayout({
@@ -7,7 +8,9 @@ export default function AppLayout({
 }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <SessionGate>{children}</SessionGate>
+      <DialogProvider>
+        <SessionGate>{children}</SessionGate>
+      </DialogProvider>
     </div>
   )
 }

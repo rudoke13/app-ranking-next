@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import LogoutButton from "@/components/app/LogoutButton"
+import NotificationBell from "@/components/app/NotificationBell"
 import UserAvatar from "@/components/app/UserAvatar"
 import { Badge } from "@/components/ui/badge"
 import type { Role } from "@/lib/auth/types"
@@ -74,6 +75,7 @@ export default function AppHeader({
               </Badge>
             ) : null}
           </div>
+          <NotificationBell />
           <ThemeToggle />
           <LogoutButton />
         </div>

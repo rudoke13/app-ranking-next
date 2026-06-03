@@ -9,6 +9,7 @@ import {
   resolveChallengeWinner,
 } from "@/lib/challenges/result"
 import { resolveChallengeWindows } from "@/lib/domain/challenges"
+import { notifyChallengeReceived } from "@/lib/domain/notifications"
 import { maxPositionsUp, ensureBaselineSnapshot, getAccessThreshold, monthStartFrom } from "@/lib/domain/ranking"
 import { shiftMonthValue } from "@/lib/date"
 import { hasAdminAccess } from "@/lib/domain/permissions"
@@ -1074,6 +1075,20 @@ const handleCreateChallenge = async (request: Request) => {
   }
 
   challengesResponseCache.clear()
+
+  // Notifica o jogador desafiado. Falha aqui nao deve derrubar a criacao.
+  try {
+    await notifyChallengeReceived({
+      challengeId: created.challenge.id,
+      rankingId,
+      rankingName: ranking.name,
+      challengerId,
+      challengedId,
+      scheduledFor,
+    })
+  } catch (error) {
+    console.error("[api/challenges][POST] notify failed", error)
+  }
 
   return NextResponse.json(
     { ok: true, data: { id: created.challenge.id } },

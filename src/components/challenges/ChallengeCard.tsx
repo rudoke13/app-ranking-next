@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useState } from "react"
 import { CalendarDays, Flag, MessageCircle, Swords } from "lucide-react"
 
 import StatPill, { type StatPillTone } from "@/components/app/StatPill"
+import { useDialog } from "@/components/app/DialogProvider"
 import UserAvatar from "@/components/app/UserAvatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -96,6 +97,7 @@ function ChallengeCardComponent({
   onActionComplete,
   className,
 }: ChallengeCardProps) {
+  const dialog = useDialog()
   const [actionMode, setActionMode] = useState<
     "result" | "edit" | "schedule" | null
   >(null)
@@ -424,9 +426,13 @@ function ChallengeCardComponent({
   const handleDelete = async () => {
     if (!isAdmin) return
 
-    const confirmed = window.confirm(
-      "Tem certeza que deseja apagar este desafio definitivamente? Essa acao nao pode ser desfeita."
-    )
+    const confirmed = await dialog.confirm({
+      title: "Apagar desafio?",
+      description:
+        "Tem certeza que deseja apagar este desafio definitivamente? Essa acao nao pode ser desfeita.",
+      confirmLabel: "Apagar",
+      destructive: true,
+    })
 
     if (!confirmed) return
 

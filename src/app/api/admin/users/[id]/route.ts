@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { getSessionFromCookies } from "@/lib/auth/session"
 import { db } from "@/lib/db"
 import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
+import { removeRankingMembership } from "@/lib/domain/memberships"
 import { hasStaffAccess } from "@/lib/domain/permissions"
 
 type MembershipUpdate = {
@@ -665,44 +666,15 @@ export async function PATCH(
 
       const removeMembershipIntent = membershipInput?.remove === true
       if (removeMembershipIntent && membershipInput) {
-        const membership = await tx.ranking_memberships.findFirst({
-          where: {
-            user_id: userId,
-            ...(membershipInput.id
-              ? { id: membershipInput.id }
-              : membershipInput.ranking_id
-              ? { ranking_id: membershipInput.ranking_id }
-              : {}),
-          },
+        const removed = await removeRankingMembership(tx, {
+          userId,
+          membershipId: membershipInput.id,
+          rankingId: membershipInput.ranking_id,
         })
-
-        if (!membership) {
+        if (!removed) {
           throw new Error("membership_not_found")
         }
-
-        // Recompacta as posicoes dos jogadores ativos que estavam abaixo do
-        // removido, evitando "buracos" na ordem do ranking.
-        if (
-          !membership.is_suspended &&
-          membership.position &&
-          membership.position > 0
-        ) {
-          await tx.ranking_memberships.updateMany({
-            where: {
-              ranking_id: membership.ranking_id,
-              NOT: { is_suspended: true },
-              id: { not: membership.id },
-              position: { gt: membership.position },
-            },
-            data: { position: { decrement: 1 } },
-          })
-        }
-
-        await tx.ranking_memberships.delete({ where: { id: membership.id } })
-        removedMembership = {
-          id: membership.id,
-          ranking_id: membership.ranking_id,
-        }
+        removedMembership = removed
       }
 
       if (uniquePlayerRankingIds !== null) {

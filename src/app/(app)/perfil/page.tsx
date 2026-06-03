@@ -1,9 +1,10 @@
 import SectionTitle from "@/components/app/SectionTitle"
 import AvatarUploader from "@/components/profile/AvatarUploader"
+import LinkedRankingsManager from "@/components/profile/LinkedRankingsManager"
 import ProfileForm from "@/components/profile/ProfileForm"
 import ProfileHistoryTabs from "@/components/profile/ProfileHistoryTabs"
 import RankingVisibilityToggle from "@/components/profile/RankingVisibilityToggle"
-import { Badge } from "@/components/ui/badge"
+import { listUserPendingRemovalRankingIds } from "@/lib/domain/removal-requests"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { getSessionFromCookies } from "@/lib/auth/session"
@@ -81,6 +82,15 @@ export default async function PerfilPage() {
       (entry): entry is { id: number; name: string; position: number | null } =>
         Boolean(entry)
     )
+  let pendingRemovalRankingIds: number[] = []
+  if (typeof userId === "number" && Number.isFinite(userId)) {
+    try {
+      pendingRemovalRankingIds = await listUserPendingRemovalRankingIds(userId)
+    } catch {
+      // Tabela pode nao existir ainda (migracao pendente) — degrada para vazio.
+      pendingRemovalRankingIds = []
+    }
+  }
   const linkedRankingSet = new Set(linkedRankingBadges.map((entry) => entry.id))
   const allowedVisibleRankings = isRestrictedToMembership
     ? activeRankings.filter(
@@ -149,19 +159,10 @@ export default async function PerfilPage() {
           <p className="text-sm font-semibold text-foreground">
             Rankings vinculados
           </p>
-          <div className="flex flex-wrap gap-2">
-            {linkedRankingBadges.length ? (
-              linkedRankingBadges.map((ranking) => (
-                <Badge key={ranking.id} variant="secondary">
-                  {ranking.name}
-                </Badge>
-              ))
-            ) : (
-              <span className="text-sm text-muted-foreground">
-                Nenhum ranking vinculado.
-              </span>
-            )}
-          </div>
+          <LinkedRankingsManager
+            rankings={linkedRankingBadges}
+            initialPendingRankingIds={pendingRemovalRankingIds}
+          />
           <RankingVisibilityToggle
             initialShowOtherRankings={showOtherRankings}
             initialVisibleRankingIds={visibleRankingIds}

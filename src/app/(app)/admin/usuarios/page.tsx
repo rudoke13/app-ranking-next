@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
 
 import SectionTitle from "@/components/app/SectionTitle"
+import { useDialog } from "@/components/app/DialogProvider"
 import UserAvatar from "@/components/app/UserAvatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -118,6 +119,7 @@ type ChallengeLockActionData = {
 }
 
 export default function AdminUsuariosPage() {
+  const dialog = useDialog()
   const [users, setUsers] = useState<AdminUser[]>([])
   const [rankings, setRankings] = useState<RankingItem[]>([])
   const [viewerRole, setViewerRole] = useState<string>("player")
@@ -546,18 +548,24 @@ export default function AdminUsuariosPage() {
     if (field === "is_suspended" && value) {
       const defaultPosition =
         membership.position ?? membership.licensePosition ?? null
-      const input = window.prompt(
-        "Informe a posicao que o jogador saiu para a licenca",
-        defaultPosition ? String(defaultPosition) : ""
-      )
+      const input = await dialog.prompt({
+        title: "Colocar em licenca",
+        description: "Informe a posicao que o jogador saiu para a licenca.",
+        defaultValue: defaultPosition ? String(defaultPosition) : "",
+        placeholder: "Ex.: 12",
+        inputMode: "numeric",
+        confirmLabel: "Confirmar",
+        validate: (value) => {
+          const parsedValue = Number(value)
+          return Number.isFinite(parsedValue) && parsedValue >= 1
+            ? null
+            : "Posicao de licenca invalida."
+        },
+      })
       if (input === null) {
         return
       }
       const parsed = Number(input)
-      if (!Number.isFinite(parsed) || parsed < 1) {
-        setActionError("Posicao de licenca invalida.")
-        return
-      }
       setSaving(true)
       setActionError(null)
       const response = await apiPatch(`/api/admin/users/${userId}`, {
@@ -626,11 +634,12 @@ export default function AdminUsuariosPage() {
     userId: number,
     membership: Membership
   ) => {
-    const confirmed = window.confirm(
-      `Remover o jogador da categoria "${membership.rankingName}"? ` +
-        "Ele sai desta categoria e as posicoes sao reorganizadas. " +
-        "O cadastro do jogador e o historico nao sao apagados."
-    )
+    const confirmed = await dialog.confirm({
+      title: "Remover do ranking?",
+      description: `Remover o jogador da categoria "${membership.rankingName}"? Ele sai desta categoria e as posicoes sao reorganizadas. O cadastro do jogador e o historico nao sao apagados.`,
+      confirmLabel: "Remover",
+      destructive: true,
+    })
     if (!confirmed) return
 
     setSaving(true)
@@ -659,23 +668,26 @@ export default function AdminUsuariosPage() {
     return `${year}-${month}`
   }
 
-  const promptMonthKey = () => {
+  const promptMonthKey = async () => {
     const suggested = getCurrentMonthKey()
-    const rawValue = window.prompt(
-      "Mes de referencia (YYYY-MM). Ex.: 2026-03",
-      suggested
-    )
+    const rawValue = await dialog.prompt({
+      title: "Mes de referencia",
+      description: "Use o formato YYYY-MM. Ex.: 2026-03.",
+      defaultValue: suggested,
+      placeholder: "2026-03",
+      validate: (value) => {
+        const month = value || suggested
+        return monthPattern.test(month)
+          ? null
+          : "Mes invalido. Use o formato YYYY-MM."
+      },
+    })
     if (rawValue === null) return null
-    const month = rawValue.trim() || suggested
-    if (!monthPattern.test(month)) {
-      setActionError("Mes invalido. Use o formato YYYY-MM.")
-      return null
-    }
-    return month
+    return rawValue || suggested
   }
 
   const inspectChallengeLocks = async (userId: number, membership: Membership) => {
-    const month = promptMonthKey()
+    const month = await promptMonthKey()
     if (!month) return
 
     const actionKey = `inspect-${userId}-${membership.id}`
@@ -712,29 +724,35 @@ export default function AdminUsuariosPage() {
       })
       .join("\n")
 
-    window.alert(
-      [
-        `Ranking: ${membership.rankingName}`,
-        `Mes: ${data.month}`,
-        `Bloqueado: ${data.blocked ? "Sim" : "Nao"}`,
-        `Pendentes: ${data.pending_count}`,
-        `Concluidos: ${data.completed_count}`,
-        `Total de bloqueios: ${data.blockers.length}`,
-        preview ? "" : "",
-        preview ? `Desafios:\n${preview}` : "Nenhum desafio bloqueando.",
-      ]
-        .filter(Boolean)
-        .join("\n")
-    )
+    const summary = [
+      `Ranking: ${membership.rankingName}`,
+      `Mes: ${data.month}`,
+      `Bloqueado: ${data.blocked ? "Sim" : "Nao"}`,
+      `Pendentes: ${data.pending_count}`,
+      `Concluidos: ${data.completed_count}`,
+      `Total de bloqueios: ${data.blockers.length}`,
+      preview ? `\nDesafios:\n${preview}` : "\nNenhum desafio bloqueando.",
+    ].join("\n")
+
+    await dialog.alert({
+      title: "Bloqueios do jogador",
+      description: (
+        <span className="block whitespace-pre-line font-mono text-xs">
+          {summary}
+        </span>
+      ),
+    })
   }
 
   const unlockPendingChallenges = async (userId: number, membership: Membership) => {
-    const month = promptMonthKey()
+    const month = await promptMonthKey()
     if (!month) return
 
-    const confirmed = window.confirm(
-      `Destravar desafios pendentes de "${membership.rankingName}" no mes ${month}?`
-    )
+    const confirmed = await dialog.confirm({
+      title: "Destravar pendentes?",
+      description: `Destravar desafios pendentes de "${membership.rankingName}" no mes ${month}?`,
+      confirmLabel: "Destravar",
+    })
     if (!confirmed) return
 
     const actionKey = `unlock-${userId}-${membership.id}`
@@ -759,32 +777,42 @@ export default function AdminUsuariosPage() {
 
     const affected = response.data.affected ?? 0
     const ids = response.data.challenge_ids ?? []
-    window.alert(
-      affected > 0
-        ? `Destrave concluido.\nDesafios cancelados: ${affected}\nIDs: ${ids.join(", ")}`
-        : "Nenhum desafio pendente encontrado para destravar."
-    )
+    await dialog.alert({
+      title: "Destrave concluido",
+      description:
+        affected > 0
+          ? `Desafios cancelados: ${affected}. IDs: ${ids.join(", ")}`
+          : "Nenhum desafio pendente encontrado para destravar.",
+    })
     loadUsers()
   }
 
   const deleteBlockingChallenge = async (userId: number, membership: Membership) => {
-    const month = promptMonthKey()
+    const month = await promptMonthKey()
     if (!month) return
 
-    const challengeRaw = window.prompt(
-      "Informe o ID do desafio para EXCLUIR:",
-      ""
-    )
+    const challengeRaw = await dialog.prompt({
+      title: "Excluir desafio",
+      description: "Informe o ID do desafio que deseja EXCLUIR.",
+      placeholder: "Ex.: 1234",
+      inputMode: "numeric",
+      confirmLabel: "Continuar",
+      validate: (value) => {
+        const parsedValue = Number(value)
+        return Number.isFinite(parsedValue) && parsedValue > 0
+          ? null
+          : "ID do desafio invalido."
+      },
+    })
     if (challengeRaw === null) return
-    const challengeId = Number(challengeRaw.trim())
-    if (!Number.isFinite(challengeId) || challengeId <= 0) {
-      setActionError("ID do desafio invalido.")
-      return
-    }
+    const challengeId = Number(challengeRaw)
 
-    const confirmed = window.confirm(
-      `Excluir definitivamente o desafio #${challengeId} de "${membership.rankingName}" no mes ${month}?`
-    )
+    const confirmed = await dialog.confirm({
+      title: "Excluir desafio?",
+      description: `Excluir definitivamente o desafio #${challengeId} de "${membership.rankingName}" no mes ${month}?`,
+      confirmLabel: "Excluir",
+      destructive: true,
+    })
     if (!confirmed) return
 
     const actionKey = `delete-${userId}-${membership.id}`
@@ -808,9 +836,10 @@ export default function AdminUsuariosPage() {
       return
     }
 
-    window.alert(
-      `Desafio #${response.data.deleted_challenge_id ?? challengeId} removido com sucesso.`
-    )
+    await dialog.alert({
+      title: "Desafio removido",
+      description: `Desafio #${response.data.deleted_challenge_id ?? challengeId} removido com sucesso.`,
+    })
     loadUsers()
   }
 
@@ -821,6 +850,11 @@ export default function AdminUsuariosPage() {
         subtitle="Gerencie acessos e permissoes"
         action={
           <div className="flex flex-wrap items-center gap-2">
+            {viewerRole === "admin" ? (
+              <Button asChild variant="outline">
+                <Link href="/admin/notificacoes">Notificacoes</Link>
+              </Button>
+            ) : null}
             {viewerRole === "admin" ? (
               <Button asChild variant="outline">
                 <Link href="/admin/ponto-azul">Ponto azul</Link>

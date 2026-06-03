@@ -40,6 +40,7 @@ import { apiGet, apiPatch, apiPost, type ApiResult } from "@/lib/http"
 import { prefetchApiGet } from "@/lib/http-prefetch"
 import { formatMonthYearPt, shiftMonthValue } from "@/lib/date"
 import { cn } from "@/lib/utils"
+import { useDialog } from "@/components/app/DialogProvider"
 import {
   consumeRankingVisibilityRefreshMarker,
   RANKING_VISIBILITY_UPDATED_EVENT,
@@ -731,6 +732,7 @@ export default function RankingList() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [visibilityRefreshToken, setVisibilityRefreshToken] = useState(0)
+  const dialog = useDialog()
   const playersDataRef = useRef<PlayersResponse | null>(null)
   const lastVisibilityMarkerRef = useRef<string | null>(null)
   const lastChallengeMarkerRef = useRef<string | null>(null)
@@ -1648,9 +1650,13 @@ export default function RankingList() {
     const includeAll = canManageAll && rolloverAll
 
     if (action === "rollover" && includeAll) {
-      const confirmed = window.confirm(
-        "Isso vai fechar e abrir rodadas de TODAS as categorias. Deseja continuar?"
-      )
+      const confirmed = await dialog.confirm({
+        title: "Abrir rodadas de todas as categorias?",
+        description:
+          "Isso vai fechar e abrir rodadas de TODAS as categorias. Deseja continuar?",
+        confirmLabel: "Continuar",
+        destructive: true,
+      })
       if (!confirmed) return
     }
 
@@ -1689,7 +1695,7 @@ export default function RankingList() {
       await refreshPlayers(playersData.ranking.id, month, { bypassCache: true })
     }
     setAdminActionLoading(null)
-  }, [canManageAll, canRestore, nextRoundMonth, playersData, refreshPlayers, rolloverAll, selectedAdminMonth])
+  }, [canManageAll, canRestore, dialog, nextRoundMonth, playersData, refreshPlayers, rolloverAll, selectedAdminMonth])
 
   const categoryCards = useMemo(
     () =>
