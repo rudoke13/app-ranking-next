@@ -34,7 +34,11 @@ ENV DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run prisma:generate
-RUN NEXT_PRIVATE_BUILD_WORKER=1 NEXT_TELEMETRY_DISABLED=1 npm run build
+# Limita o heap do V8 durante o build para caber em containers com pouca RAM:
+# forca a coleta de lixo do webpack antes do pico do type-check (evita o
+# OOM-kill silencioso no passo "Running TypeScript"). Ajuste conforme a RAM
+# do container (ex.: 1024 para ~1GB, 1536 para ~2GB).
+RUN NODE_OPTIONS="--max-old-space-size=1536" NEXT_PRIVATE_BUILD_WORKER=1 NEXT_TELEMETRY_DISABLED=1 npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
