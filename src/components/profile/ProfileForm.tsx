@@ -209,6 +209,9 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
                     <Input
                       id="nova-senha"
                       type={showPassword ? "text" : "password"}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       className="pr-12"
@@ -235,6 +238,9 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
                     <Input
                       id="confirmar-senha"
                       type={showConfirm ? "text" : "password"}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={confirm}
                       onChange={(event) => setConfirm(event.target.value)}
                       className="pr-12"

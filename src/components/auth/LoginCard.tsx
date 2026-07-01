@@ -106,6 +106,9 @@ export default function LoginCard({
                   type={showPassword ? "text" : "password"}
                   placeholder="Digite sua senha"
                   autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   className="pr-12"
                 />

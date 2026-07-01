@@ -87,6 +87,9 @@ export default function ResetPasswordForm() {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -114,6 +117,9 @@ export default function ResetPasswordForm() {
                 <Input
                   id="confirm"
                   type={showConfirm ? "text" : "password"}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={confirm}
                   onChange={(event) => setConfirm(event.target.value)}
