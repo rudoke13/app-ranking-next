@@ -94,10 +94,21 @@ export async function sendPasswordResetEmail({
     socketTimeout: 15_000,
   })
 
-  await transport.sendMail({
-    from: resolveFrom(),
+  const from = resolveFrom()
+  const info = await transport.sendMail({
+    from,
     to,
     subject: "Recuperacao de senha - Ranking TCC",
     text: `Use o link abaixo para redefinir sua senha:\n\n${link}\n\nSe voce nao solicitou, ignore este email.`,
   })
+
+  // Log de diagnostico: confirma que o servidor SMTP ACEITOU a mensagem.
+  // Se aparecer aqui com "accepted" preenchido, o problema passa a ser de
+  // entrega (spam/DMARC), nao mais do envio pela aplicacao.
+  console.log(
+    `[forgot-password] SMTP aceitou envio para ${to} via ${env("SMTP_HOST")}:${port} ` +
+      `from="${from}" messageId=${info.messageId} ` +
+      `accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)} ` +
+      `response=${JSON.stringify(info.response)}`
+  )
 }
