@@ -87,6 +87,11 @@ export async function sendPasswordResetEmail({
       user: env("SMTP_USER"),
       pass: env("SMTP_PASS"),
     },
+    // Falha rapido (em vez de pendurar ~2min) quando a porta de saida esta
+    // bloqueada ou o host esta inalcancavel — o erro sobe para o log.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
   })
 
   await transport.sendMail({
