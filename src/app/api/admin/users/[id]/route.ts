@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { Prisma } from "@prisma/client"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { hashPassword, normalizePassword } from "@/lib/auth/password"
 import { db } from "@/lib/db"
 import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
 import { removeRankingMembership } from "@/lib/domain/memberships"
@@ -360,10 +360,9 @@ export async function PATCH(
     }
   }
   if (parsed.data.password) {
-    const passwordValue = parsed.data.password.trim()
+    const passwordValue = normalizePassword(parsed.data.password)
     if (passwordValue) {
-      const hashed = await bcrypt.hash(passwordValue, 10)
-      updates.password_hash = hashed
+      updates.password_hash = await hashPassword(passwordValue)
       updates.must_reset_password = false
     }
   }

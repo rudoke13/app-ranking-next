@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { createHash } from "crypto"
-import bcrypt from "bcryptjs"
 
+import { hashPassword } from "@/lib/auth/password"
 import { db } from "@/lib/db"
 
 const bodySchema = z.object({
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const passwordHash = await bcrypt.hash(parsed.data.password, 10)
+  const passwordHash = await hashPassword(parsed.data.password)
 
   await db.users.update({
     where: { id: user.id },

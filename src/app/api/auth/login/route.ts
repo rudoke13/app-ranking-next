@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server"
 import { randomBytes } from "crypto"
 import { z } from "zod"
-import bcrypt from "bcryptjs"
-
 import { signSession } from "@/lib/auth/jwt"
+import { verifyPassword } from "@/lib/auth/password"
 import { primeSessionTokenCache, setSessionCookie } from "@/lib/auth/session"
 import type { Role, SessionPayload } from "@/lib/auth/types"
 import { db } from "@/lib/db"
@@ -65,19 +64,10 @@ export async function POST(request: Request) {
     return response
   }
 
-  const storedHash = user.password_hash
-  const isBcryptHash =
-    storedHash.startsWith("$2a$") ||
-    storedHash.startsWith("$2b$") ||
-    storedHash.startsWith("$2y$")
-
-  const normalizedHash = storedHash.startsWith("$2y$")
-    ? `$2b$${storedHash.slice(4)}`
-    : storedHash
-
-  const passwordMatches = isBcryptHash
-    ? await bcrypt.compare(parsed.data.password, normalizedHash)
-    : parsed.data.password === storedHash
+  const passwordMatches = await verifyPassword(
+    parsed.data.password,
+    user.password_hash
+  )
 
   if (!passwordMatches) {
     const response = NextResponse.json(

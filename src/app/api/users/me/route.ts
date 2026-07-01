@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
-import bcrypt from "bcryptjs"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { hashPassword, normalizePassword } from "@/lib/auth/password"
 import { db } from "@/lib/db"
 import {
   SHOW_OTHER_RANKINGS_COOKIE,
@@ -116,10 +116,9 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.password) {
-    const passwordValue = parsed.data.password.trim()
+    const passwordValue = normalizePassword(parsed.data.password)
     if (passwordValue) {
-      const hashed = await bcrypt.hash(passwordValue, 10)
-      updates.password_hash = hashed
+      updates.password_hash = await hashPassword(passwordValue)
       updates.must_reset_password = false
       updates.password_reset_token = null
       updates.password_reset_expires_at = null

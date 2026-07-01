@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
 import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 import { getSessionFromCookies } from "@/lib/auth/session"
+import { hashPassword, normalizePassword } from "@/lib/auth/password"
 import { db } from "@/lib/db"
 import { getAllowedRankingIds } from "@/lib/domain/collaborator-access"
 import { hasStaffAccess } from "@/lib/domain/permissions"
@@ -72,7 +72,9 @@ export async function POST(request: Request) {
   const rankingId = parsed.data.ranking_id
   const rankingIds = parsed.data.ranking_ids ?? []
   const collaboratorRankingIds = parsed.data.collaborator_ranking_ids ?? []
-  const passwordInput = parsed.data.password?.trim()
+  const passwordInput = parsed.data.password
+    ? normalizePassword(parsed.data.password)
+    : undefined
   const passwordValue = passwordInput ? passwordInput : DEFAULT_PASSWORD
   const mustResetPassword = !passwordInput
   const uniquePlayerRankings = Array.from(
@@ -208,7 +210,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const passwordHash = await bcrypt.hash(passwordValue, 10)
+    const passwordHash = await hashPassword(passwordValue)
 
     const result = await db.$transaction(async (tx) => {
       const user = await tx.users.create({
