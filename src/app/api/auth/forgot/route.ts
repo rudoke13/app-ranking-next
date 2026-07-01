@@ -67,11 +67,20 @@ export async function POST(request: Request) {
       },
     })
 
-    await sendPasswordResetEmail({
-      to: email,
-      token,
-      appUrl: resolveRequestAppUrl(request),
-    })
+    try {
+      await sendPasswordResetEmail({
+        to: email,
+        token,
+        appUrl: resolveRequestAppUrl(request),
+      })
+    } catch (error) {
+      // Nao quebra o fluxo nem vaza se o e-mail existe: loga o motivo real
+      // (EAUTH, ECONNECTION, ETIMEDOUT, remetente rejeitado...) para diagnostico.
+      console.error(
+        "[forgot-password] falha ao enviar e-mail de reset:",
+        error
+      )
+    }
   }
 
   return NextResponse.json({
